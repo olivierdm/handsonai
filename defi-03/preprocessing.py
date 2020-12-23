@@ -33,9 +33,9 @@ def cluster_time_series(data,number_of_clusters,seed,method='euclidean'):
     assert method in ['euclidean','dtw']
     assert number_of_clusters>0
     if method=='euclidean':
-        model = TimeSeriesKMeans(n_clusters=number_of_clusters, verbose=True,random_state=seed)
+        model = KMeans(n_clusters=number_of_clusters, verbose=True,random_state=seed)
     elif method=='dtw':
-        model = TimeSeriesKMeans(n_clusters=number_of_clusters,
+        model = KMeans(n_clusters=number_of_clusters,
                                  metric="dtw",
                                  verbose=True,
                                  max_iter_barycenter=10,

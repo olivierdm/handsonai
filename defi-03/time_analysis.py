@@ -3,13 +3,15 @@
 
 from __init__ import *
 
-############ PARAMETERS          ############################################
+#%%######### PARAMETERS          ############################################
 p_train_val_test = [70,20,10]
 
 # PREPROCESS DATA
 p_clean_outliers = 2 # 0 = no cleaning
-p_boxcox = True
+p_boxcox = False
+p_natural_log = True
 p_difference = 7
+p_seasonal_decompose = False
 
 #############################################################################
 #############################################################################
@@ -17,12 +19,12 @@ p_difference = 7
 #############################################################################
 #############################################################################
 
-############ LOAD DATA           ############################################
+#%%######### LOAD DATA           ############################################
 
 data = load_training_data('train.csv')
 list_of_series = data.columns
 
-############ ANALYSE             ############################################
+#%%######### ANALYSE             ############################################
 # Plot all series in one plot
 plot_all_series(data, list_of_series)
 
@@ -39,11 +41,11 @@ Seasonality is the same in all classes. However the absolute values differ
 greatly between the time series 
 """    
 
-############ LOAD SERIE          ############################################
+#%%######### LOAD SERIE          ############################################
 
 selected_series, series_data = create_series_data(data,1)
 
-############ VISUALISE           ############################################
+#%%######### VISUALISE           ############################################
 full_monthy_plot(series_data,activated_plots=[1,1,1,1,1])
 
 """
@@ -59,18 +61,18 @@ months. However for monthly seasonality we do not have enough data
 
 
 
-############ CHECK DATES         ############################################
+#%%######### CHECK DATES         ############################################
 """
 TO BE WRITTEN....
 """
 
 
-############ REMOVE OUTLIERS     ############################################
+#%%######### REMOVE OUTLIERS     ############################################
 series_data['data'] = remove_outliers(series_data['data'],
                                       max_iterations = p_clean_outliers,
                                       verbose=True)
 
-############ BOXCOX              ############################################
+#%%######### BOXCOX              ############################################
 if p_boxcox:
     x, opt_lambda = boxcox(series_data['data'])
     series_data['boxcox'] = x    
@@ -79,90 +81,124 @@ if p_boxcox:
                      activated_plots=[1,1,1,1,1])
 
 
-# Check if this works for every time series
-data2 = data
-for series_nbr in range(data2.filter(regex='series').shape[1]):
-    x, opt_lambda = boxcox(data2['series-{}'.format(series_nbr+1)]+1)
-    data2['series-{}'.format(series_nbr+1)] = x
-plot_all_series(data2.filter(regex='series'), [serie for serie in list_of_series if serie[:6]=="series"])
-plot_all_series(data.filter(regex='series'), [serie for serie in list_of_series if serie[:6]=="series"])
-
-for i in range(72):
-    if sum(data2['series-{}'.format(i+1)]>1000)>0:
-        print(i+1)
+    # Check if this works for every time series
+    data2 = data
+    for series_nbr in range(data2.filter(regex='series').shape[1]):
+        x, opt_lambda = boxcox(data2['series-{}'.format(series_nbr+1)]+1)
+        data2['series-{}'.format(series_nbr+1)] = x
+    plot_all_series(data2.filter(regex='series'), [serie for serie in list_of_series if serie[:6]=="series"])
+    plot_all_series(data.filter(regex='series'), [serie for serie in list_of_series if serie[:6]=="series"])
+    
+    for i in range(72):
+        if sum(data2['series-{}'.format(i+1)]>1000)>0:
+            print(i+1)
 
 """
 BOXCOX transform doesn't work for all series, serie 35,36,67 and 68 pose a problem
 """
 
-############ NATURAL LOG         ############################################
-if p_boxcox:
+#%%######### NATURAL LOG         ############################################
+if p_natural_log:
     series_data['log1p'] = np.log(series_data['data']+1) 
     full_monthy_plot(series_data,
                      column_name="log1p",
                      activated_plots=[1,1,1,1,1])
 
-############ APPLY DIFFERENCING  ############################################
+#%%######### APPLY DIFFERENCING  ############################################
 if p_difference:
-    series_data['seasonal_diff'] = series_data["log1p"].diff(7)
+    series_data['seasonal_diff'] = series_data["log1p"].diff(p_difference)
     full_monthy_plot(series_data,
                      column_name="seasonal_diff",
                      activated_plots=[1,1,1,1,1])
 
+#%%######### DECOMPOSE / STL     ############################################
+
+if p_seasonal_decompose:
+    from statsmodels.tsa.seasonal import seasonal_decompose
+    seasonal_decompose(series_data["boxcox"],period=11).plot()
+
+#############################################################################
+#############################################################################
+###################### 3. MODEL FITTING                ######################
+#############################################################################
+#############################################################################
+
+#%%######### EMPTY               ############################################
+#decomposition
+  
+stl = STL(x, period = 7, robust = True)
+  result = stl.fit()
+
+  #predict seasonality
+  #average of seasonality on a seasonal lag
+  n=len(result.seasonal)
+  #s_lag = seasonal lag
+  s=7 #seasonality
+  mat=np.zeros((s, s_lag))
+  for j in range(0,s_lag):
+    mat[:,j]=[result.seasonal[n-i-j*s] for i in range(1,s+1)]
+  X=np.flip(np.mean(mat, axis=1))
+  seasonal_prediction=np.concatenate((X,X,X),axis=None)
+
+  #predict trend
+  #compute moving average of gradient and extrapolate with it
+  #t_lag = trend lag
+  g=np.gradient(result.trend[-t_lag:])
+  #alpha = movering average coefficient
+  g_ma=0
+  for i in range(0,len(g)):
+    g_ma=(1-alpha)*g_ma+alpha*g[i]
+  trend_prediction = []
+  trend_prediction.append(result.trend[-1]+g_ma) #option1 : from result.trend
+  #trend_prediction.append(DT[-1]+g_ma) #option2 : from data
+  for i in range(1,horizon): 
+    trend_prediction.append(trend_prediction[-1]+g_ma)
+  
+  print(name)
+
+  #total predict + unboxcox
+  Prediction = trend_prediction+seasonal_prediction
+  #Prediction = (np.power((Prediction * opt_lambda) + 1, 1 / opt_lambda))
+  Prediction = pd.DataFrame(Prediction)
+
+  #add date
+  start_test_dt = DT.index[-1] + dt.timedelta(days=1)
+  end_test_dt = start_test_dt + dt.timedelta(days = horizon - 1)
+  Prediction.index = pd.date_range(start_test_dt, end_test_dt)
+  Prediction.columns=[name]
+  Prediction[name]=Prediction[name].astype('int64')
+  
+
+#############################################################################
+#############################################################################
+###################### 4. POST PROCESSING              ######################
+#############################################################################
+#############################################################################
+
+#%%######### EMPTY               ############################################
+
+
+#############################################################################
+#############################################################################
+###################### 5. EVALUATE MODEL               ######################
+#############################################################################
+#############################################################################
+
+#%%######### EMPTY               ############################################
+
+
+#############################################################################
+#############################################################################
+###################### 6. GRID SEARCH BEST COMBO       ######################
+#############################################################################
+#############################################################################
+
+#%%######### EMPTY               ############################################
 
 
 
 
 
-from statsmodels.tsa.seasonal import seasonal_decompose
-seasonal_decompose(series_data["boxcox"],period=11).plot()
-
-
-
-#series_data['lag_7'] = series_data["boxcox"].shift(7)
-series_data['seasonal_diff'] = series_data["boxcox"].diff(7)
-
-run_sequence_plot(series_data.index, series_data['seasonal_diff'],title="Seasonal diff")
-
-
-dftest(series_data['seasonal_diff'].dropna())
-
-sm.tsa.graphics.plot_acf(series_data['seasonal_diff'].dropna(),zero=False)
-sm.tsa.graphics.plot_pacf(series_data['seasonal_diff'].dropna(),zero=False);
-
-
-
-
-
-
-
-## EXP SMOOTHING ############################
-
-
-from statsmodels.tsa.api import ExponentialSmoothing
-
-model_1 = ExponentialSmoothing(train_1,damped=True,
-                              trend="additive",
-                              seasonal=None,
-                              seasonal_periods=None).fit(optimized=True)
-
-##############################
-
-model = sm.tsa.ARMA(series_data['seasonal_diff'].dropna(), (1, 0)).fit(trend='nc', disp=0)
-model.params
-
-
-##############################
-
-sar3 = sm.tsa.statespace.SARIMAX(series_data['boxcox'], 
-                                order=(1,0,0), 
-                                seasonal_order=(0,7,0), 
-                                trend='c').fit()
-
-sm.tsa.graphics.plot_pacf(sar3.resid[sar3.loglikelihood_burn:]);
-sar3.plot_diagnostics();
-
-##############################
 
 training_data = series_data['seasonal_diff'][:int(len(series_data)*0.7)]#data[[selected_series]][:int(train_val_test[0]*len(data)/100)]#series_data['seasonal_diff'].dropna()
 test_data = series_data['seasonal_diff'][int(len(series_data)*0.7):]#data[[selected_series]][int(train_val_test[0]*len(data)/100):]

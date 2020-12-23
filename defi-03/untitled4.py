@@ -59,5 +59,32 @@ NICE CODEEEEE
 #rolling window
 series_data['data'].rolling(30).mean().plot()
 
+## EXP SMOOTHING ############################
+
+
+from statsmodels.tsa.api import ExponentialSmoothing
+
+model_1 = ExponentialSmoothing(train_1,damped=True,
+                              trend="additive",
+                              seasonal=None,
+                              seasonal_periods=None).fit(optimized=True)
+
+##############################
+
+model = sm.tsa.ARMA(series_data['seasonal_diff'].dropna(), (1, 0)).fit(trend='nc', disp=0)
+model.params
+
+
+##############################
+
+sar3 = sm.tsa.statespace.SARIMAX(series_data['boxcox'], 
+                                order=(1,0,0), 
+                                seasonal_order=(0,7,0), 
+                                trend='c').fit()
+
+sm.tsa.graphics.plot_pacf(sar3.resid[sar3.loglikelihood_burn:]);
+sar3.plot_diagnostics();
+
+##############################
 
 
