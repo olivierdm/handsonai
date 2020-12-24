@@ -69,20 +69,20 @@ else:
 
 
 #%%######### CLEAN + LOG1P + DIFF(7) ########################################
-    data2 = data.copy()
-    for series_nbr in range(data2.filter(regex='series').shape[1]):
-        data2['series-{}'.format(series_nbr+1)] = remove_outliers(data2['series-{}'.format(series_nbr+1)],
-                                                                  max_iterations = p_clean_outliers,
-                                                                  verbose=True)
-        if p_natural_log:
-            data2['log-series-{}'.format(series_nbr+1)]  = np.log(data2['series-{}'.format(series_nbr+1)]+1)
-        if p_difference:
-            data2['diff-series-{}'.format(series_nbr+1)] = data2['log-series-{}'.format(series_nbr+1)].diff(p_difference)
-    plot_all_series(data2.filter(regex='^series'), [serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
-    plot_all_series(data2.filter(regex='log-series'), ["log-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
-    plot_all_series(data2.filter(regex='diff-series'), ["diff-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
+for series_name in data.filter(regex='series').columns:
+        data[series_name] = remove_outliers(data[series_name],
+                                            max_iterations = p_clean_outliers,
+                                            verbose=True)
+data2 = data.copy()
+for series_name in data2.filter(regex='series').columns:
+    if p_natural_log:
+        data2['log-'+series_name]  = np.log(data2[series_name)
+    if p_difference:
+        data2['diff-'+series_name] = data2['log-'+series_name].diff(p_difference)
 
-
+plot_all_series(data2.filter(regex='^series'), [serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
+plot_all_series(data2.filter(regex='log-series'), ["log-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
+plot_all_series(data2.filter(regex='diff-series'), ["diff-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
 
     
 #%%######### DECOMPOSE / STL     ############################################
@@ -105,22 +105,23 @@ training_data = data[:-HORIZON]
 
 def avg_method_pred(training_data,HORIZON):
     data_predictions = pd.DataFrame(data.filter(regex="^(?!series)")[-21:],index=data.index[-HORIZON:],columns=data.filter(regex="^(?!series)").columns)
-    for series_name in data_training.filter(regex='^series').columns:
-        data_predictions[series_name] = data_training[series_name].mean()
+    for series_name in training_data.filter(regex='^series').columns:
+        data_predictions[series_name] = training_data[series_name].mean()
     return data_predictions
 
 def naive_method_pred(training_data,HORIZON):
     data_predictions = pd.DataFrame(data.filter(regex="^(?!series)")[-21:],index=data.index[-HORIZON:],columns=data.filter(regex="^(?!series)").columns)
-    for series_name in data_training.filter(regex='^series').columns:
-        data_predictions[series_name] = data_training[series_name][-1]
+    for series_name in training_data.filter(regex='^series').columns:
+        data_predictions[series_name] = training_data[series_name][-1]
     return data_predictions
 
 def snaive_method_pred(training_data,HORIZON):
     data_predictions = pd.DataFrame(data.filter(regex="^(?!series)")[-21:],index=data.index[-HORIZON:],columns=data.filter(regex="^(?!series)").columns)
-    for series_name in data_training.filter(regex='^series').columns:
+    for series_name in training_data.filter(regex='^series').columns:
+        data_predictions[series_name]=0
         for i,week_day in enumerate(data_predictions["w"]):
-            tmp_date_last_weekday = data_training["w"].where(data_training["w"]==week_day).last_valid_index()
-            data_predictions[series_name][i]=data_training[series_name][tmp_date_last_weekday]
+            tmp_date_last_weekday = training_data["w"].where(training_data["w"]==week_day).last_valid_index()
+            data_predictions[series_name][i]=training_data[series_name][tmp_date_last_weekday]
     return data_predictions
 
 avg_pred = avg_method_pred(training_data, HORIZON)
@@ -132,40 +133,46 @@ snaive_pred = snaive_method_pred(training_data, HORIZON)
 
 
 def snaive_decomp_method_pred(training_data,HORIZON):  
-    stl = STL(training_data, period = 7, robust = True)
-    result = stl.fit()
+    s_lag = 21
+    t_lag = 7
+    alpha = 0.5
     
-    #predict seasonality
-    #average of seasonality on a seasonal lag
-    n=len(result.seasonal)
-    #s_lag = seasonal lag
-    s=7 #seasonality
-    mat=np.zeros((s, s_lag))
-    for j in range(0,s_lag):
-      mat[:,j]=[result.seasonal[n-i-j*s] for i in range(1,s+1)]
-    X=np.flip(np.mean(mat, axis=1))
-    seasonal_prediction=np.concatenate((X,X,X),axis=None)
-    
-    #predict trend
-    #compute moving average of gradient and extrapolate with it
-    #t_lag = trend lag
-    g=np.gradient(result.trend[-t_lag:])
-    #alpha = movering average coefficient
-    g_ma=0
-    for i in range(0,len(g)):
-      g_ma=(1-alpha)*g_ma+alpha*g[i]
-    trend_prediction = []
-    trend_prediction.append(result.trend[-1]+g_ma) #option1 : from result.trend
-    #trend_prediction.append(DT[-1]+g_ma) #option2 : from data
-    for i in range(1,horizon): 
-      trend_prediction.append(trend_prediction[-1]+g_ma)
-    
-    print(name)
-    
-    #total predict + unboxcox
-    Prediction = trend_prediction+seasonal_prediction
-    #Prediction = (np.power((Prediction * opt_lambda) + 1, 1 / opt_lambda))
-    Prediction = pd.DataFrame(Prediction)
+    for series_name in training_data.filter(regex='^series').columns:
+        
+        stl = STL(training_data, period = 7, robust = True)
+        result = stl.fit()
+        
+        #predict seasonality
+        #average of seasonality on a seasonal lag
+        n=len(result.seasonal)
+        #s_lag = seasonal lag
+        s=7 #seasonality
+        mat=np.zeros((s, s_lag))
+        for j in range(0,s_lag):
+          mat[:,j]=[result.seasonal[n-i-j*s] for i in range(1,s+1)]
+        X=np.flip(np.mean(mat, axis=1))
+        seasonal_prediction=np.concatenate((X,X,X),axis=None)
+        
+        #predict trend
+        #compute moving average of gradient and extrapolate with it
+        #t_lag = trend lag
+        g=np.gradient(result.trend[-t_lag:])
+        #alpha = movering average coefficient
+        g_ma=0
+        for i in range(0,len(g)):
+          g_ma=(1-alpha)*g_ma+alpha*g[i]
+        trend_prediction = []
+        trend_prediction.append(result.trend[-1]+g_ma) #option1 : from result.trend
+        #trend_prediction.append(DT[-1]+g_ma) #option2 : from data
+        for i in range(1,HORIZON): 
+          trend_prediction.append(trend_prediction[-1]+g_ma)
+        
+        
+        #total prediction
+        Prediction = trend_prediction+seasonal_prediction
+        #Prediction = (np.power((Prediction * opt_lambda) + 1, 1 / opt_lambda))
+        data_predictions[series_name]
+        Prediction = pd.DataFrame(Prediction)
     
     #add date
     start_test_dt = DT.index[-1] + dt.timedelta(days=1)
