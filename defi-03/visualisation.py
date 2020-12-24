@@ -7,13 +7,14 @@ Created on Sun Dec 20 22:36:11 2020
 """
 from __init__ import *
 
-def plot_all_series(data,list_of_series):
+def plot_all_series(data,list_of_series,show_legend=False):
     fig, ax = plt.subplots()
     for serie in list_of_series:
         data[serie].plot(ax=ax,label=serie)
     ax.set(xlabel='time', ylabel='views',
            title='Plot of series data')
-    ax.legend()
+    if show_legend:
+        ax.legend()
     plt.show()
 
 def run_sequence_plot(x, y, title, xlabel="time", ylabel="series"):

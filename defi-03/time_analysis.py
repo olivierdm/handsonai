@@ -62,55 +62,29 @@ months. However for monthly seasonality we do not have enough data
 
 
 #%%######### CHECK DATES         ############################################
-"""
-TO BE WRITTEN....
-"""
+if int((data.index[-1]-data.index[0])/np.timedelta64(1, 'D')+1)==len(data.index):
+    print("No missing dates")
+else:
+    print("Missing dates detected")
 
 
-#%%######### REMOVE OUTLIERS     ############################################
-series_data['data'] = remove_outliers(series_data['data'],
-                                      max_iterations = p_clean_outliers,
-                                      verbose=True)
-
-#%%######### BOXCOX              ############################################
-if p_boxcox:
-    x, opt_lambda = boxcox(series_data['data'])
-    series_data['boxcox'] = x    
-    full_monthy_plot(series_data,
-                     column_name="boxcox",
-                     activated_plots=[1,1,1,1,1])
-
-
-    # Check if this works for every time series
-    data2 = data
+#%%######### CLEAN + LOG1P + DIFF(7) ########################################
+    data2 = data.copy()
     for series_nbr in range(data2.filter(regex='series').shape[1]):
-        x, opt_lambda = boxcox(data2['series-{}'.format(series_nbr+1)]+1)
-        data2['series-{}'.format(series_nbr+1)] = x
-    plot_all_series(data2.filter(regex='series'), [serie for serie in list_of_series if serie[:6]=="series"])
-    plot_all_series(data.filter(regex='series'), [serie for serie in list_of_series if serie[:6]=="series"])
+        data2['series-{}'.format(series_nbr+1)] = remove_outliers(data2['series-{}'.format(series_nbr+1)],
+                                                                  max_iterations = p_clean_outliers,
+                                                                  verbose=True)
+        if p_natural_log:
+            data2['log-series-{}'.format(series_nbr+1)]  = np.log(data2['series-{}'.format(series_nbr+1)]+1)
+        if p_difference:
+            data2['diff-series-{}'.format(series_nbr+1)] = data2['log-series-{}'.format(series_nbr+1)].diff(p_difference)
+    plot_all_series(data2.filter(regex='^series'), [serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
+    plot_all_series(data2.filter(regex='log-series'), ["log-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
+    plot_all_series(data2.filter(regex='diff-series'), ["diff-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
+
+
+
     
-    for i in range(72):
-        if sum(data2['series-{}'.format(i+1)]>1000)>0:
-            print(i+1)
-
-"""
-BOXCOX transform doesn't work for all series, serie 35,36,67 and 68 pose a problem
-"""
-
-#%%######### NATURAL LOG         ############################################
-if p_natural_log:
-    series_data['log1p'] = np.log(series_data['data']+1) 
-    full_monthy_plot(series_data,
-                     column_name="log1p",
-                     activated_plots=[1,1,1,1,1])
-
-#%%######### APPLY DIFFERENCING  ############################################
-if p_difference:
-    series_data['seasonal_diff'] = series_data["log1p"].diff(p_difference)
-    full_monthy_plot(series_data,
-                     column_name="seasonal_diff",
-                     activated_plots=[1,1,1,1,1])
-
 #%%######### DECOMPOSE / STL     ############################################
 
 if p_seasonal_decompose:
@@ -123,50 +97,82 @@ if p_seasonal_decompose:
 #############################################################################
 #############################################################################
 
+#%%######### NAIVE METHODS               ############################################
+HORIZON = 21
+
+prediction_reference_data = data[-HORIZON:]
+training_data = data[:-HORIZON]
+
+def avg_method_pred(training_data,HORIZON):
+    data_predictions = pd.DataFrame(data.filter(regex="^(?!series)")[-21:],index=data.index[-HORIZON:],columns=data.filter(regex="^(?!series)").columns)
+    for series_name in data_training.filter(regex='^series').columns:
+        data_predictions[series_name] = data_training[series_name].mean()
+    return data_predictions
+
+def naive_method_pred(training_data,HORIZON):
+    data_predictions = pd.DataFrame(data.filter(regex="^(?!series)")[-21:],index=data.index[-HORIZON:],columns=data.filter(regex="^(?!series)").columns)
+    for series_name in data_training.filter(regex='^series').columns:
+        data_predictions[series_name] = data_training[series_name][-1]
+    return data_predictions
+
+def snaive_method_pred(training_data,HORIZON):
+    data_predictions = pd.DataFrame(data.filter(regex="^(?!series)")[-21:],index=data.index[-HORIZON:],columns=data.filter(regex="^(?!series)").columns)
+    for series_name in data_training.filter(regex='^series').columns:
+        for i,week_day in enumerate(data_predictions["w"]):
+            tmp_date_last_weekday = data_training["w"].where(data_training["w"]==week_day).last_valid_index()
+            data_predictions[series_name][i]=data_training[series_name][tmp_date_last_weekday]
+    return data_predictions
+
+avg_pred = avg_method_pred(training_data, HORIZON)
+naive_pred = naive_method_pred(training_data, HORIZON)
+snaive_pred = snaive_method_pred(training_data, HORIZON)
+
 #%%######### EMPTY               ############################################
 #decomposition
-  
-stl = STL(x, period = 7, robust = True)
-  result = stl.fit()
 
-  #predict seasonality
-  #average of seasonality on a seasonal lag
-  n=len(result.seasonal)
-  #s_lag = seasonal lag
-  s=7 #seasonality
-  mat=np.zeros((s, s_lag))
-  for j in range(0,s_lag):
-    mat[:,j]=[result.seasonal[n-i-j*s] for i in range(1,s+1)]
-  X=np.flip(np.mean(mat, axis=1))
-  seasonal_prediction=np.concatenate((X,X,X),axis=None)
 
-  #predict trend
-  #compute moving average of gradient and extrapolate with it
-  #t_lag = trend lag
-  g=np.gradient(result.trend[-t_lag:])
-  #alpha = movering average coefficient
-  g_ma=0
-  for i in range(0,len(g)):
-    g_ma=(1-alpha)*g_ma+alpha*g[i]
-  trend_prediction = []
-  trend_prediction.append(result.trend[-1]+g_ma) #option1 : from result.trend
-  #trend_prediction.append(DT[-1]+g_ma) #option2 : from data
-  for i in range(1,horizon): 
-    trend_prediction.append(trend_prediction[-1]+g_ma)
-  
-  print(name)
-
-  #total predict + unboxcox
-  Prediction = trend_prediction+seasonal_prediction
-  #Prediction = (np.power((Prediction * opt_lambda) + 1, 1 / opt_lambda))
-  Prediction = pd.DataFrame(Prediction)
-
-  #add date
-  start_test_dt = DT.index[-1] + dt.timedelta(days=1)
-  end_test_dt = start_test_dt + dt.timedelta(days = horizon - 1)
-  Prediction.index = pd.date_range(start_test_dt, end_test_dt)
-  Prediction.columns=[name]
-  Prediction[name]=Prediction[name].astype('int64')
+def snaive_decomp_method_pred(training_data,HORIZON):  
+    stl = STL(training_data, period = 7, robust = True)
+    result = stl.fit()
+    
+    #predict seasonality
+    #average of seasonality on a seasonal lag
+    n=len(result.seasonal)
+    #s_lag = seasonal lag
+    s=7 #seasonality
+    mat=np.zeros((s, s_lag))
+    for j in range(0,s_lag):
+      mat[:,j]=[result.seasonal[n-i-j*s] for i in range(1,s+1)]
+    X=np.flip(np.mean(mat, axis=1))
+    seasonal_prediction=np.concatenate((X,X,X),axis=None)
+    
+    #predict trend
+    #compute moving average of gradient and extrapolate with it
+    #t_lag = trend lag
+    g=np.gradient(result.trend[-t_lag:])
+    #alpha = movering average coefficient
+    g_ma=0
+    for i in range(0,len(g)):
+      g_ma=(1-alpha)*g_ma+alpha*g[i]
+    trend_prediction = []
+    trend_prediction.append(result.trend[-1]+g_ma) #option1 : from result.trend
+    #trend_prediction.append(DT[-1]+g_ma) #option2 : from data
+    for i in range(1,horizon): 
+      trend_prediction.append(trend_prediction[-1]+g_ma)
+    
+    print(name)
+    
+    #total predict + unboxcox
+    Prediction = trend_prediction+seasonal_prediction
+    #Prediction = (np.power((Prediction * opt_lambda) + 1, 1 / opt_lambda))
+    Prediction = pd.DataFrame(Prediction)
+    
+    #add date
+    start_test_dt = DT.index[-1] + dt.timedelta(days=1)
+    end_test_dt = start_test_dt + dt.timedelta(days = horizon - 1)
+    Prediction.index = pd.date_range(start_test_dt, end_test_dt)
+    Prediction.columns=[name]
+    Prediction[name]=Prediction[name].astype('int64')
   
 
 #############################################################################
@@ -184,7 +190,7 @@ stl = STL(x, period = 7, robust = True)
 #############################################################################
 #############################################################################
 
-#%%######### EMPTY               ############################################
+#%%######### RESIDUAL DIAGNOSTIC ############################################
 
 
 #############################################################################
