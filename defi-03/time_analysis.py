@@ -8,10 +8,13 @@ p_train_val_test = [70,20,10]
 
 # PREPROCESS DATA
 p_clean_outliers = 2 # 0 = no cleaning
-p_boxcox = False
-p_natural_log = True
+p_boxcox = True
+p_natural_log = False
 p_difference = 7
 p_seasonal_decompose = False
+
+
+assert p_boxcox!=p_natural_log
 
 #############################################################################
 #############################################################################
@@ -68,28 +71,37 @@ else:
     print("Missing dates detected")
 
 
-#%%######### CLEAN + LOG1P + DIFF(7) ########################################
+#%%######### CLEAN + LOG1P/BOXCOX + DIFF(7) ########################################
+warnings.filterwarnings("ignore")
 for series_name in data.filter(regex='series').columns:
         data[series_name] = remove_outliers(data[series_name],
                                             max_iterations = p_clean_outliers,
                                             verbose=True)
 data2 = data.copy()
+last_prefix = ""
+if p_boxcox:
+    opt_lambdas = {}
 for series_name in data2.filter(regex='series').columns:
     if p_natural_log:
-        data2['log-'+series_name]  = np.log(data2[series_name)
+        data2['log-'+series_name]  = np.log(data2[series_name])
+        last_prefix = "log-"
+    elif p_boxcox: 
+        x, opt_lambda = boxcox(data2[series_name])
+        data2['boxcox-'+series_name]=x
+        opt_lambdas[series_name]=opt_lambda
+        last_prefix = "boxcox-"
     if p_difference:
-        data2['diff-'+series_name] = data2['log-'+series_name].diff(p_difference)
+        data2['diff-'+series_name] = data2[last_prefix+series_name].diff(p_difference)
 
-plot_all_series(data2.filter(regex='^series'), [serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
-plot_all_series(data2.filter(regex='log-series'), ["log-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
-plot_all_series(data2.filter(regex='diff-series'), ["diff-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False)
+plot_all_series(data2.filter(regex='^series'), [serie for serie in list_of_series if serie[:6]=="series"],show_legend=False, title="Unprocessed data")
+if p_natural_log:
+    plot_all_series(data2.filter(regex='log-series'), ["log-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False, title="Natural log of data")
+if p_boxcox:
+    plot_all_series(data2.filter(regex='boxcox-series'), ["boxcox-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False, title="Boxcox of data")
+if p_difference:
+    plot_all_series(data2.filter(regex='diff-series'), ["diff-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False,title="Differenced data (lag={})".format(p_difference))
 
-    
-#%%######### DECOMPOSE / STL     ############################################
 
-if p_seasonal_decompose:
-    from statsmodels.tsa.seasonal import seasonal_decompose
-    seasonal_decompose(series_data["boxcox"],period=11).plot()
 
 #############################################################################
 #############################################################################
@@ -124,9 +136,24 @@ def snaive_method_pred(training_data,HORIZON):
             data_predictions[series_name][i]=training_data[series_name][tmp_date_last_weekday]
     return data_predictions
 
+def snaive_avg_method_pred(training_data,HORIZON,history_mean=2*HORIZON):
+    data_predictions = pd.DataFrame(data.filter(regex="^(?!series)")[-21:],index=data.index[-HORIZON:],columns=data.filter(regex="^(?!series)").columns)
+    for series_name in training_data.filter(regex='^series').columns:
+        data_predictions[series_name]=0
+        for i,week_day in enumerate(data_predictions["w"]):
+            data_predictions[series_name][i]=training_data[-history_mean:][series_name].where(training_data["w"]==week_day).mean()
+    return data_predictions
+
 avg_pred = avg_method_pred(training_data, HORIZON)
 naive_pred = naive_method_pred(training_data, HORIZON)
 snaive_pred = snaive_method_pred(training_data, HORIZON)
+snaive_avg_pred = snaive_avg_method_pred(training_data, HORIZON, 2*HORIZON)
+
+
+plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,avg_pred,title="Average prediction",size=[2,2])
+plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,naive_pred,title="Naive prediction",size=[2,2])
+plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_pred,title="Snaive prediction",size=[2,2])
+plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_avg_pred,title="Snaive average prediction",size=[2,2])
 
 #%%######### EMPTY               ############################################
 #decomposition

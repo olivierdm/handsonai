@@ -7,12 +7,12 @@ Created on Sun Dec 20 22:36:11 2020
 """
 from __init__ import *
 
-def plot_all_series(data,list_of_series,show_legend=False):
+def plot_all_series(data,list_of_series,show_legend=False,title='Plot of series data'):
     fig, ax = plt.subplots()
     for serie in list_of_series:
         data[serie].plot(ax=ax,label=serie)
     ax.set(xlabel='time', ylabel='views',
-           title='Plot of series data')
+           title=title)
     if show_legend:
         ax.legend()
     plt.show()
@@ -89,7 +89,7 @@ def full_monthy_plot(series_data,column_name='data',
     None.
 
     """
-    warnings.filterwarnings("ignore")
+    #warnings.filterwarnings("ignore")
     # Dickie_Fuller test
     if activated_plots[0]==1:
         dftest(series_data[column_name].dropna(),plot_rolling_std=plot_rolling_std)
@@ -116,4 +116,15 @@ def full_monthy_plot(series_data,column_name='data',
         except:
             pass
     
-    warnings.filterwarnings("default")
+    #warnings.filterwarnings("default")
+
+def plot_predictions(training_data,test_data,predictions,title="Predictions",size=[5,2]):
+    fig, ax = plt.subplots(size[0],size[1])
+    fig.suptitle(title)
+    #Select 10 series to plot
+    selected_series = [i*len(training_data.filter(regex="^series").columns)//(size[0]*size[1]) for i in range(1,size[0]*size[1]+1)]
+    for j in range(size[0]):
+        for k in range (size[1]):
+            training_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',ax=ax[j,k])
+            test_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',alpha=.5,ax=ax[j,k])
+            predictions[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='red',ax=ax[j,k])
