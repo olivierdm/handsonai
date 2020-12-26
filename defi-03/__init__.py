@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import warnings
+from datetime import timedelta
 
 from scipy import fftpack
 from scipy.stats import boxcox
@@ -26,6 +27,12 @@ import statsmodels.api as sm
 import statsmodels.tsa.stattools as ts
 from statsmodels.tsa.stattools import acf 
 from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.tsa.forecasting.stl import STLForecast
+from statsmodels.tsa.arima.model import ARIMA
+
+from fbprophet import Prophet
+
+from pmdarima.arima import auto_arima
 
 #from tslearn.clustering import TimeSeriesKMeans
 from sklearn.cluster import KMeans
@@ -41,7 +48,8 @@ from main.utils.utils import *
 from preprocessing import *
 from help_functions import *
 from visualisation import *
+from methods import *
 
-plt.rcParams['figure.figsize'] = [10, 5]
+plt.rcParams['figure.figsize'] = [10, 10]
 
 

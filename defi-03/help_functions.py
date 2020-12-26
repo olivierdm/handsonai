@@ -40,3 +40,21 @@ def undo_differencing(training_data,forecast_data,difference_data,shift_number):
         #reconstructed_data = reconstructed_data + difference_data_forecast.shift(shift_number)
     
     return reconstructed_data
+
+def calculate_smape_df(reference_data,forecast_data):
+    results = {}
+    for series_name in forecast_data.filter(regex='^series').columns:
+        results[series_name] = smape(reference_data[series_name],forecast_data[series_name])
+    return results
+
+
+def export_predictions_csv(predictions,file):
+    ids_list = []
+    predictions_list = []
+    get_id_list = lambda series: ["s{}h{}".format(series.split("-")[1],i) for i in range(1,HORIZON+1)]
+    for series_name in predictions.filter(regex='^series').columns:
+        ids_list+=get_id_list(series_name)
+        predictions_list+=list(predictions[series_name])
+    pd.DataFrame(np.array([ids_list,predictions_list]).T,
+                 columns=['Id','forecasts']).to_csv(file, 
+                                                   index=False)
