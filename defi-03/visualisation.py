@@ -118,7 +118,7 @@ def full_monthy_plot(series_data,column_name='data',
     
     #warnings.filterwarnings("default")
 
-def plot_predictions(training_data,test_data,predictions,title="Predictions",size=[5,2]):
+def plot_predictions(training_data,test_data,predictions,title="Predictions",size=[5,2],selected_series=[]):
     fig, ax = plt.subplots(size[0],size[1])
     fig.suptitle(title)
     fig2, ax2 = plt.subplots(size[0],size[1])
@@ -126,21 +126,35 @@ def plot_predictions(training_data,test_data,predictions,title="Predictions",siz
     fig3, ax3 = plt.subplots(size[0],size[1])
     fig3.suptitle(title+" (pACF of Error)")
     #Select 10 series to plot
-    selected_series = [i*len(training_data.filter(regex="^series").columns)//(size[0]*size[1]) for i in range(1,size[0]*size[1]+1)]
+    if selected_series==[]:
+        selected_series = [i*len(training_data.filter(regex="^series").columns)//(size[0]*size[1]) for i in range(1,size[0]*size[1]+1)]
+    else:
+        assert size[0]*size[1]==len(selected_series)
+        selected_series = list(selected_series)
     for j in range(size[0]):
         for k in range (size[1]):
-            training_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',ax=ax[j,k])
-            test_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',alpha=.5,ax=ax[j,k])
-            predictions[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='red',ax=ax[j,k])
-            
             # Residual data
             residual = test_data[:]["series-{}".format(selected_series[j*size[1]+k])]-predictions[:]["series-{}".format(selected_series[j*size[1]+k])]
-            # ACF
-            sm.tsa.graphics.plot_acf(residual.dropna(),zero=False,ax=ax2[j,k],lags=9)
-            # pACF
-            sm.tsa.graphics.plot_pacf(residual.dropna(),zero=False,ax=ax3[j,k],lags=9)
+                
+            if size[1]==1:
+                training_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',ax=ax[j])
+                test_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',alpha=.5,ax=ax[j])
+                predictions[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='red',ax=ax[j])
+                # ACF
+                sm.tsa.graphics.plot_acf(residual.dropna(),zero=False,ax=ax2[j],lags=9)
+                # pACF
+                sm.tsa.graphics.plot_pacf(residual.dropna(),zero=False,ax=ax3[j],lags=9)
+            else:
+                training_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',ax=ax[j,k])
+                test_data[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='black',alpha=.5,ax=ax[j,k])
+                predictions[:]["series-{}".format(selected_series[j*size[1]+k])].plot(color='red',ax=ax[j,k])
+                # ACF
+                sm.tsa.graphics.plot_acf(residual.dropna(),zero=False,ax=ax2[j,k],lags=9)
+                # pACF
+                sm.tsa.graphics.plot_pacf(residual.dropna(),zero=False,ax=ax3[j,k],lags=9)
             
             
             
             
+       
             

@@ -53,6 +53,20 @@ def snaive_avg_method_pred(training_data,HORIZON,history_mean):
             data_predictions[series_name][i]=float(calculated_mean)
     return data_predictions
 
+def snaive_median_method_pred(training_data,HORIZON,history_mean):
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    data_predictions.astype(np.float)
+    for series_name in training_data.filter(regex='^series').columns:
+        data_predictions[series_name]=0.0
+        for i,day in enumerate(data_predictions.index):
+            multiplier = (day-training_data.index[-1])//timedelta(days=7) + 1
+            calculated_mean = np.array(training_data[series_name][day-timedelta(days=7)*(multiplier)])
+            for k in range(1,history_mean//7):
+                calculated_mean = np.append(calculated_mean,(training_data[series_name][day-timedelta(days=7)*(multiplier+k)]))
+            calculated_mean = np.median(calculated_mean)
+            data_predictions[series_name][i]=float(calculated_mean)
+    return data_predictions
+
 """
 def snaive_avg_method_pred(training_data,HORIZON,history_mean):
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
