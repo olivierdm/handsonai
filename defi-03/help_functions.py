@@ -48,7 +48,7 @@ def calculate_smape_df(reference_data,forecast_data):
     return results
 
 
-def export_predictions_csv(predictions,file):
+def export_predictions_csv(predictions,file,HORIZON=21):
     ids_list = []
     predictions_list = []
     get_id_list = lambda series: ["s{}h{}".format(series.split("-")[1],i) for i in range(1,HORIZON+1)]

@@ -11,7 +11,7 @@ from __init__ import *
 
 
 def load_training_data(filename):
-    data = pd.read_csv("train.csv", index_col = "Day", parse_dates = True)
+    data = pd.read_csv(filename, index_col = "Day", parse_dates = True)
     data = data.asfreq("D")
     
     data["d"] = data.index.day.to_numpy()
@@ -27,6 +27,9 @@ def create_series_data(data,series_number):
         series_data = data[[selected_series, "d", "m", "y", "w", "wy"]]
         series_data = series_data.rename(columns={selected_series:'data'})
         return selected_series, series_data
+    
+def create_series_data2(data,series_name):
+        return data[series_name].rename(columns={series_name:'data'})
 
 def cluster_time_series(data,number_of_clusters,seed,method='euclidean'):
     #https://towardsdatascience.com/how-to-apply-k-means-clustering-to-time-series-data-28d04a8f7da3 

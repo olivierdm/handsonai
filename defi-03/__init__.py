@@ -29,6 +29,8 @@ from statsmodels.tsa.stattools import acf
 from statsmodels.graphics.tsaplots import plot_acf
 from statsmodels.tsa.forecasting.stl import STLForecast
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import SimpleExpSmoothing, Holt
+
 
 from fbprophet import Prophet
 

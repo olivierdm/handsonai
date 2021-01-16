@@ -30,6 +30,48 @@ def snaive_method_pred(training_data,HORIZON):
     return data_predictions
 """
 
+def exp_smoothing_method_pred(training_data,HORIZON,METHOD="simple",smoothing_level=.3,optimized=True,smoothing_slope=.05):
+    exp_smoothing_type = METHOD #"simple"
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    data_predictions.astype(np.float)
+    for series_name in training_data.filter(regex='^series').columns:
+        if exp_smoothing_type == "holt":
+            model = Holt(training_data[series_name])
+        elif exp_smoothing_type == "simple":
+            model = SimpleExpSmoothing(training_data[series_name])
+        
+        model._index = training_data.index
+        
+        if exp_smoothing_type == "holt":
+            if optimized:
+                fit = model.fit(optimized=True)
+            else:
+                fit = model.fit(smoothing_level=smoothing_level, smoothing_slope=smoothing_slope)
+        elif exp_smoothing_type == "simple":
+            fit = model.fit(smoothing_level=smoothing_level)
+    
+        
+        #pred = fit.forecast(HORIZON)
+        data_predictions[series_name] = fit.forecast(HORIZON)
+        
+        """
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(training_data.index[-5*HORIZON:], training_data['series-1'].values[-5*HORIZON:])
+        ax.plot(prediction_reference_data.index, prediction_reference_data['series-1'].values, color="gray")
+        for p, f, c in zip((pred1, pred2, pred3),(fit1, fit2, fit3),('#ff7823','#3c763d','c')):
+            ax.plot(training_data.index[-5*HORIZON:], f.fittedvalues[-5*HORIZON:], color=c)
+            if exp_smoothing_type == "simple":
+                ax.plot(prediction_reference_data.index, p, label="alpha="+str(f.params['smoothing_level'])[:3], color=c)
+            elif exp_smoothing_type == "holt":
+                ax.plot(prediction_reference_data.index, p, label="alpha="+str(f.params['smoothing_level'])[:4]+", beta="+str(f.params['smoothing_trend'])[:4], color=c)
+        if exp_smoothing_type == "holt":
+            plt.title("Holt's Exponential Smoothing")
+        elif exp_smoothing_type == "simple":
+            plt.title("Simple Exponential Smoothing")
+        plt.legend();
+        """
+    return data_predictions
+
 def snaive_method_pred(training_data,HORIZON):
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^series').columns:
@@ -38,6 +80,19 @@ def snaive_method_pred(training_data,HORIZON):
             multiplier = (day-training_data.index[-1])//timedelta(days=7) + 1
             data_predictions[series_name][i]=training_data[series_name][day-timedelta(days=7)*multiplier]
     return data_predictions
+
+def snaive_year_method_pred(training_data,HORIZON):
+    moving_average_window = 28
+    rescale_look_back = 3*30
+    
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    for series_name in training_data.filter(regex='^series').columns:
+        #new = training_data[series_name]['2017-03-02':'2017-08-20'].values
+        old_avg = training_data[series_name].rolling(window=moving_average_window).mean()
+        scale_factor = training_data[series_name][training_data.index[-rescale_look_back:]].values.mean()/training_data[series_name][training_data.index[-rescale_look_back:]-timedelta(days=365)].values.mean()
+        data_predictions[series_name] = old_avg[data_predictions.index-timedelta(days=365)].values*scale_factor
+    return data_predictions
+
 
 def snaive_avg_method_pred(training_data,HORIZON,history_mean):
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
@@ -65,6 +120,43 @@ def snaive_median_method_pred(training_data,HORIZON,history_mean):
                 calculated_mean = np.append(calculated_mean,(training_data[series_name][day-timedelta(days=7)*(multiplier+k)]))
             calculated_mean = np.median(calculated_mean)
             data_predictions[series_name][i]=float(calculated_mean)
+    return data_predictions
+
+def snaive_exp_smoothing_method_pred(training_data,HORIZON,METHOD="simple",smoothing_level=.3,optimized=True,smoothing_slope=.05):
+    """
+    Method hardcoded for weekday seasonality
+
+    """
+    
+    
+    exp_smoothing_type = METHOD #"simple"
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    data_predictions.astype(np.float)
+    for i in range(7):
+        for series_name in training_data.filter(regex='^series').columns:
+            try:
+                data_predictions[series_name].shape
+            except:
+                data_predictions[series_name]=0.0
+            if exp_smoothing_type == "holt":
+                model = Holt(training_data[series_name][training_data.index.dayofweek==i])
+            elif exp_smoothing_type == "simple":
+                model = SimpleExpSmoothing(training_data[series_name][training_data.index.dayofweek==i])
+            
+            model._index = training_data[training_data.index.dayofweek==i].index
+            
+            if exp_smoothing_type == "holt":
+                if optimized:
+                    fit = model.fit(optimized=True)
+                else:
+                    fit = model.fit(smoothing_level=smoothing_level, smoothing_slope=smoothing_slope)
+            elif exp_smoothing_type == "simple":
+                fit = model.fit(smoothing_level=smoothing_level)
+        
+            
+            #pred = fit.forecast(HORIZON)
+            data_predictions[series_name][data_predictions.index.dayofweek==i] = fit.forecast(HORIZON//7)
+    
     return data_predictions
 
 """

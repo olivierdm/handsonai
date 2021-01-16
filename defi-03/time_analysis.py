@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 
 from __init__ import *
-
 #%%######### PARAMETERS          ############################################
 p_train_val_test = [70,20,10]
 
 # PREPROCESS DATA
-p_clean_outliers = 4 # 0 = no cleaning
+p_clean_outliers = 2 # 0 = no cleaning
 p_boxcox = True
 p_natural_log = False
 p_difference = 7
@@ -24,8 +23,10 @@ assert p_boxcox!=p_natural_log
 
 #%%######### LOAD DATA           ############################################
 
-data = load_training_data('train.csv')
+orig_data = load_training_data('train.csv')
+data = orig_data.copy()
 list_of_series = data.columns
+
 
 #%%######### ANALYSE             ############################################
 # Plot all series in one plot
@@ -45,7 +46,7 @@ greatly between the time series
 """    
 
 
-#%%######### VISUALISE           ############################################
+#%%######### VISUALISE EDA        ############################################
 full_monthy_plot(series_data,activated_plots=[1,1,1,1,1])
 
 """
@@ -109,58 +110,95 @@ if p_difference:
 #%%######### NAIVE METHODS       ############################################
 HORIZON = 21
 
-prediction_reference_data = data[-HORIZON:]
-training_data = data[:-HORIZON]
+prediction_reference_data = data[-HORIZON:].copy()
+#training_data[training_data.filter(regex='^series').columns] = data.filter(regex='^series').rolling(7).sum()[:-HORIZON]
+training_data = data[:-HORIZON].copy()
 
 #%%
 
+
+#%%
+show_plot = False
 smape_arrays = {}
 
 avg_pred = avg_method_pred(training_data, HORIZON)
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,avg_pred,title="Average prediction",size=[2,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,avg_pred,title="Average prediction",size=[2,2])
 smape_arrays['smape_avg'] = np.array(list(calculate_smape_df(prediction_reference_data,avg_pred).values()))
-plot_predictions(training_data[-10*HORIZON:],prediction_reference_data,avg_pred,title="Worst of average prediction",size=[5,2],selected_series=smape_arrays['smape_avg'].argsort()[-10:][::-1])
-  
+if show_plot:
+    plot_predictions(training_data[-10*HORIZON:],prediction_reference_data,avg_pred,title="Worst of average prediction",size=[5,2],selected_series=smape_arrays['smape_avg'].argsort()[-10:][::-1])
 
 naive_pred = naive_method_pred(training_data, HORIZON)
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,naive_pred,title="Naive prediction",size=[2,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,naive_pred,title="Naive prediction",size=[2,2])
 smape_arrays['smape_naive'] = np.array(list(calculate_smape_df(prediction_reference_data,naive_pred).values()))
 
+exp_smoothing_pred = exp_smoothing_method_pred(training_data, HORIZON,METHOD="holt",optimized=True)
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,exp_smoothing_pred,title="Exp smoothing prediction",size=[8,2])
+smape_arrays['smape_exp_smoothing'] = np.array(list(calculate_smape_df(prediction_reference_data,exp_smoothing_pred).values()))
+
+snaive_year_pred = snaive_year_method_pred(training_data, HORIZON)
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_year_pred,title="Snaive year prediction",size=[8,2])
+smape_arrays['smape_snaive_year'] = np.array(list(calculate_smape_df(prediction_reference_data,snaive_year_pred).values()))
+print("{:.2f} - smape_snaive_year".format(smape_arrays['smape_snaive_year'].mean()))
+if show_plot:
+    plot_predictions(training_data[-365:],prediction_reference_data,snaive_year_pred,title="Worst of Snaive year prediction",size=[10,2],selected_series=smape_arrays['smape_snaive_year'].argsort()[-20:][::-1])
+
+
+snaive_exp_smoothing_pred = snaive_exp_smoothing_method_pred(training_data, HORIZON,METHOD="holt",optimized=False,smoothing_slope=0.018,smoothing_level=.34)
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_exp_smoothing_pred,title="Snaive Exp smoothing prediction",size=[8,2])
+smape_arrays['smape_snaive_exp_smoothing'] = np.array(list(calculate_smape_df(prediction_reference_data,snaive_exp_smoothing_pred).values()))
+print("{:.2f} - smape_snaive_exp_smoothing".format(smape_arrays['smape_snaive_exp_smoothing'].mean()))
+
 snaive_pred = snaive_method_pred(training_data, HORIZON)
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_pred,title="Snaive prediction",size=[2,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_pred,title="Snaive prediction",size=[2,2])
 smape_arrays['smape_snaive'] = np.array(list(calculate_smape_df(prediction_reference_data,snaive_pred).values()))
 
 snaive_avg_pred = snaive_avg_method_pred(training_data, HORIZON, 35) #Best result for 35 days
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_avg_pred,title="Snaive average prediction",size=[8,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_avg_pred,title="Snaive average prediction",size=[8,2])
 smape_arrays['smape_snaive_avg'] = np.array(list(calculate_smape_df(prediction_reference_data,snaive_avg_pred).values()))
-plot_predictions(training_data[-365:],prediction_reference_data,snaive_avg_pred,title="Worst of Snaive average prediction",size=[5,1],selected_series=smape_arrays['smape_snaive_avg'].argsort()[-5:][::-1])
+if show_plot:
+    plot_predictions(training_data[-365:],prediction_reference_data,snaive_avg_pred,title="Worst of Snaive average prediction",size=[5,1],selected_series=smape_arrays['smape_snaive_avg'].argsort()[-5:][::-1])
 
 snaive_median_pred = snaive_median_method_pred(training_data, HORIZON, 35) #Best result for 35 days
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_median_pred,title="Snaive median prediction",size=[8,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_median_pred,title="Snaive median prediction",size=[8,2])
 smape_arrays['smape_snaive_median'] = np.array(list(calculate_smape_df(prediction_reference_data,snaive_median_pred).values()))
 
 snaive_decomp_pred = snaive_decomp_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas) 
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_decomp_pred,title="Snaive decomposition prediction",size=[8,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,snaive_decomp_pred,title="Snaive decomposition prediction",size=[8,2])
 smape_arrays['smape_snaive_decomp'] = np.array(list(calculate_smape_df(prediction_reference_data,snaive_decomp_pred).values()))
 
 
 #%%
 fb_prophet_pred = fb_prophet_method_pred(training_data,HORIZON) 
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,fb_prophet_pred,title="FB Prophet prediction",size=[8,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,fb_prophet_pred,title="FB Prophet prediction",size=[8,2])
 smape_arrays['smape_fb_prophet'] = np.array(list(calculate_smape_df(prediction_reference_data,fb_prophet_pred).values()))
 
 fb_prophet_mod_pred = fb_prophet_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas=opt_lambdas,additive_model=True) 
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,fb_prophet_mod_pred,title="FB Prophet Mod prediction",size=[8,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,fb_prophet_mod_pred,title="FB Prophet Mod prediction",size=[8,2])
 smape_arrays['smape_fb_prophet_mod'] = np.array(list(calculate_smape_df(prediction_reference_data,fb_prophet_mod_pred).values()))
 
 
 #%%######### SARIMA/ARIMA METHODS ###########################################
 
 stl_arima_pred = stl_arima_method_pred(training_data,HORIZON,(2,1,1))
-plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,stl_arima_pred,title="STL Arima prediction",size=[2,2])
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,stl_arima_pred,title="STL Arima prediction",size=[2,2])
 smape_arrays['smape_stl_arima'] = np.array(list(calculate_smape_df(prediction_reference_data,stl_arima_pred).values())).mean()
 
-
+#%%
+#Print mean of smape values:
+for key in smape_arrays.keys():
+    print(key+" "+str(smape_arrays[key].mean()))
 #%%######### SARIMAX             ############################################
 """
 DOES NOT WORK WELL FOR ALL SERIES ...
@@ -186,6 +224,35 @@ sarimax_pred = sarimax_method_pred(training_data, HORIZON,data_is_stationary=Fal
 
 
 
+#%%######### CNN                 ############################################
+
+#WORK IN PROGRESS OLIVIER
+
+def to_supervised(train, n_input, n_out=7):
+	# flatten data
+	data = train.reshape((train.shape[0]*train.shape[1], train.shape[2]))
+	X, y = list(), list()
+	in_start = 0
+	# step over the entire history one time step at a time
+	for _ in range(len(data)):
+		# define the end of the input sequence
+		in_end = in_start + n_input
+		out_end = in_end + n_out
+		# ensure we have enough data for this instance
+		if out_end <= len(data):
+			x_input = data[in_start:in_end, 0]
+			x_input = x_input.reshape((len(x_input), 1))
+			X.append(x_input)
+			y.append(data[in_end:out_end, 0])
+		# move along one time step
+		in_start += 1
+	return array(X), array(y)
+
+
+
+
+
+
 #############################################################################
 #############################################################################
 ###################### 6. GRID SEARCH BEST COMBO       ######################
@@ -194,11 +261,11 @@ sarimax_pred = sarimax_method_pred(training_data, HORIZON,data_is_stationary=Fal
 
 #%%######### TEST RANDOM COMBINATIONS #######################################
 results = {}
-#best = {'coeff':[],'smape':999}
+best = {'coeff':[],'smape':999}
 for k in range(100):
-    coeff = np.random.rand(3)
+    coeff = np.random.rand(2)
     results[k] = coeff
-    multi_pred = (coeff[0]*stl_arima_pred+coeff[1]*snaive_avg_pred+coeff[2]*snaive_decomp_pred)/sum(coeff)
+    multi_pred = (coeff[0]*snaive_decomp_pred+coeff[1]*snaive_year_pred)/sum(coeff)
     smape_multi = np.array(list(calculate_smape_df(prediction_reference_data,multi_pred).values())).mean()
     results[k+1000]=smape_multi
     if smape_multi<best['smape']:
@@ -206,35 +273,7 @@ for k in range(100):
         best['coeff'] = coeff
     print("{} - SMAPE: {}".format(coeff,smape_multi))
 
-#############################################################################
-#############################################################################
-###################### 7. EXPORT RESULTS               ######################
-#############################################################################
-#############################################################################
-
-#%%######### EMPTY               ############################################
-
-
-                                                   
-export_predictions_csv(fb_prophet_mod_pred,"fb_prophet_mod_pred.csv")
-
-export_predictions_csv(snaive_avg_pred,"snaive_avg.csv")
-
-export_predictions_csv(multi_pred,"multi_combo.csv")
-
-export_predictions_csv(combined_predictions,"multi_best_selected.csv")
-
-
-
-
-
-#%%######### FB Prophet BOXCOX data #########################################
-fb_prophet_mod_pred = fb_prophet_method_pred(data2,HORIZON,opt_lambdas=opt_lambdas,additive_model=True) 
-plot_predictions(data[-5*HORIZON:],prediction_reference_data,fb_prophet_mod_pred,title="FB Prophet Mod prediction",size=[8,2])
-smape_fb_prophet_mod = np.array(list(calculate_smape_df(prediction_reference_data,fb_prophet_mod_pred).values())).mean()
-
-
-#%% SELECT BEST ALGORITHM
+#%% FIND BEST ALGORITHM FOR EACH SERIES
 
 best_algorithm_per_series = {}
 new_smape_array = {}
@@ -250,8 +289,13 @@ print("New overall smape: {}".format(np.array(list(new_smape_array.values())).me
 plt.hist(best_algorithm_per_series.values())
 
 
-#%%
+#############################################################################
+#############################################################################
+###################### 7. PREDICT FUTURE               ######################
+#############################################################################
+#############################################################################
 
+#%%######### EMPTY               ############################################
 avg_pred = avg_method_pred(data, HORIZON)
 
 naive_pred = naive_method_pred(data, HORIZON)
@@ -260,6 +304,8 @@ snaive_pred = snaive_method_pred(data, HORIZON)
 
 snaive_avg_pred = snaive_avg_method_pred(data, HORIZON, 35) #Best result for 35 days
 
+snaive_exp_pred = snaive_exp_smoothing_method_pred(data, HORIZON,METHOD="holt",optimized=False,smoothing_slope=0.018,smoothing_level=.34)
+
 snaive_median_pred = snaive_median_method_pred(data, HORIZON, 35) #Best result for 35 days
 
 snaive_decomp_pred = snaive_decomp_method_pred(data2,HORIZON,opt_lambdas) 
@@ -267,5 +313,30 @@ snaive_decomp_pred = snaive_decomp_method_pred(data2,HORIZON,opt_lambdas)
 combined_predictions = pd.DataFrame(index=avg_pred.index)
 for i,series_name in enumerate(data.filter(regex="^series").columns):
     combined_predictions[series_name]=globals()[best_algorithm_per_series[series_name][6:]+"_pred"][series_name]        
+
+
+
+#############################################################################
+#############################################################################
+###################### 8. EXPORT RESULTS               ######################
+#############################################################################
+#############################################################################
+
+#%%######### EXPORT PREDICTIONS TO KAGGLE CSV ###############################
+                                                   
+export_predictions_csv(fb_prophet_mod_pred,"fb_prophet_mod_pred.csv")
+
+export_predictions_csv(snaive_avg_pred,"snaive_avg.csv")
+
+export_predictions_csv(snaive_exp_pred,"snaive_exp.csv")
+
+export_predictions_csv(multi_pred,"multi_combo.csv")
+
+export_predictions_csv(combined_predictions,"multi_best_selected.csv")
+
+
+
+
+
 
 
