@@ -5,9 +5,11 @@ Created on Sat Dec 19 21:15:52 2020
 
 @author: olivierdemeyst
 """
+from __init__ import *
+
 
 #Reconstruct original data
-def undo_differencing(training_data,forecast_data,difference_data,shift_number):
+def undo_differencing_old(training_data,forecast_data,difference_data,shift_number):
     """
 
     Parameters
@@ -40,6 +42,15 @@ def undo_differencing(training_data,forecast_data,difference_data,shift_number):
         #reconstructed_data = reconstructed_data + difference_data_forecast.shift(shift_number)
     
     return reconstructed_data
+
+def undo_differencing(data_before_diff,diffed_data,p_difference,start_offset=0):
+    output = pd.Series(index=diffed_data.index)
+    for i in range(start_offset,len(diffed_data)):
+        if i<p_difference+start_offset:
+            output[i]=diffed_data[i]+data_before_diff[i-p_difference]
+        else:
+            output[i]=diffed_data[i]+output[i-p_difference]
+    return output
 
 def calculate_smape_df(reference_data,forecast_data):
     results = {}

@@ -314,3 +314,152 @@ def fb_prophet_method_pred(training_data,HORIZON,opt_lambdas=None, additive_mode
         else:
             data_predictions[series_name] = np.array(model.predict(data_predictions[['ds']])['yhat'])
     return data_predictions#data_predictions
+
+
+def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
+    # The number of lagged values.
+    LAG = 30
+    LATENT_DIM = 50 #5   # number of units in the RNN layer
+    BATCH_SIZE = 32  # number of samples per mini-batch
+    EPOCHS = 100      # maximum number of times the training algorithm will cycle through all samples
+    loss = 'mse' # Loss function to be used to optimize the model parameters
+    adam_learning_rate=0.01
+    early_stopping_patience=100
+    early_stopping_delta=0
+    
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    for series_name in training_data.filter(regex='^diff-series').columns:
+        series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
+        
+        # Data split
+        n = len(series_data)
+        n_train = int(0.8 * n)#(n - HORIZON - LAG))
+        n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
+        n_learn = n_train + n_valid
+        
+        train = series_data[:n_train]
+        valid = series_data[n_train:n_learn]
+        #test = series_data[n_learn:n]
+        
+        # From time series to input-output data (also called time series embedding)
+        train_inputs, valid_inputs, X_train, y_train, X_valid, y_valid, \
+            = embed_data(train, valid, None, HORIZON, LAG, freq = "D", variable = 'series')
+                
+        #########################
+        file_header = "model_" + series_name + "_mlp_multioutput"
+        verbose = 0
+        
+        optimizer_adam = keras.optimizers.Adam(learning_rate=adam_learning_rate) 
+        earlystop = EarlyStopping(monitor='val_loss', 
+                                  min_delta=early_stopping_delta, 
+                                  patience= early_stopping_patience)
+        
+        
+        
+        best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', period=1)
+        #########################
+        
+        model_mlp_multioutput, history_mlp_multioutput = mlp_multioutput(X_train, y_train, X_valid, y_valid, 
+                                LATENT_DIM = LATENT_DIM, 
+                                BATCH_SIZE = BATCH_SIZE, 
+                                EPOCHS = EPOCHS, 
+                                LAG = LAG, 
+                                HORIZON = HORIZON, 
+                                loss = loss, 
+                                optimizer = optimizer_adam,
+                                earlystop = earlystop, 
+                                best_val = best_val,
+                                verbose=verbose)
+        plot_learning_curves(history_mlp_multioutput)
+        
+        best_epoch = np.argmin(np.array(history_mlp_multioutput.history['val_loss']))+1
+        filepath = '../work/' + file_header + '_{:02d}.h5'
+        model_mlp_multioutput.load_weights(filepath.format(best_epoch))
+
+        #Generate input for prediction
+        tensor_structure = {'encoder_input':(range(-LAG+1, 1), ["series"]), 'decoder_input':(range(0, HORIZON), ["series"])}
+        data_inputs = TimeSeriesTensor(series_data[-LAG-HORIZON:], "series", HORIZON, tensor_structure, freq = "D")
+        DT = data_inputs.dataframe
+        X_test = DT.iloc[:, DT.columns.get_level_values(0)=='encoder_input']
+        X_test.values[0] =training_data[series_name][-LAG:].values
+        
+        predictions_mlp_multioutput = model_mlp_multioutput.predict(X_test)
+        data_predictions[series_name[5:]] = pd.Series(predictions_mlp_multioutput[0], index=data_predictions.index)
+        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+
+    return data_predictions
+
+def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
+    LAG=30
+    LATENT_DIM = 5   # number of units in the RNN layer
+    BATCH_SIZE = 32  # number of samples per mini-batch
+    EPOCHS = 100      # maximum number of times the training algorithm will cycle through all samples
+    loss = 'mse'
+    adam_learning_rate=0.01
+    early_stopping_patience=100
+    early_stopping_delta=0
+    
+    
+    verbose = 0
+    
+    optimizer_adam = keras.optimizers.Adam(learning_rate=adam_learning_rate) 
+    earlystop = EarlyStopping(monitor='val_loss', min_delta=early_stopping_delta, patience= early_stopping_patience)
+    
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    for series_name in training_data.filter(regex='^diff-series').columns:
+        print("Predicting next values for "+series_name[5:])
+        file_header = "model_" + series_name + "_mlp_recursive"
+        best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', period=1)
+        #########################
+        series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
+        # Data split
+        n = len(series_data)
+        n_train = int(0.8 * n)#(n - HORIZON - LAG))
+        n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
+        n_learn = n_train + n_valid
+        
+        train = series_data[:n_train]
+        valid = series_data[n_train:n_learn]
+        #test = series_data[n_learn:n]
+        _, _, X_train_onestep, y_train_onestep, X_valid_onestep, y_valid_onestep = embed_data(train, valid, None, 1, LAG, freq = None, variable = 'series')
+        
+        model_mlp_recursive, history_mlp_recursive = mlp_multioutput(X_train_onestep, y_train_onestep, X_valid_onestep, y_valid_onestep, 
+                                LATENT_DIM = LATENT_DIM, 
+                                BATCH_SIZE = BATCH_SIZE, 
+                                EPOCHS = EPOCHS, 
+                                LAG = LAG, 
+                                HORIZON = 1, 
+                                loss = loss, 
+                                optimizer = optimizer_adam,
+                                earlystop = earlystop, 
+                                best_val = best_val,
+                                verbose=verbose)
+        plot_learning_curves(history_mlp_recursive)
+        
+        best_epoch = np.argmin(np.array(history_mlp_recursive.history['val_loss']))+1
+        filepath = '../work/' + file_header + '_{:02d}.h5'
+        model_mlp_recursive.load_weights(filepath.format(best_epoch))
+        
+        #Generate input for prediction
+        tensor_structure = {'encoder_input':(range(-LAG+1, 1), ["series"]), 'decoder_input':(range(0, HORIZON), ["series"])}
+        data_inputs = TimeSeriesTensor(series_data[-LAG-HORIZON:], "series", HORIZON, tensor_structure, freq = "D")
+        DT = data_inputs.dataframe
+        X_test = DT.iloc[:, DT.columns.get_level_values(0)=='encoder_input']
+        X_test.values[0] =training_data[series_name][-LAG:].values
+        
+        for h in range(HORIZON):
+            pred = model_mlp_recursive.predict(X_test)
+            X_test = pd.DataFrame(np.hstack( (np.delete(X_test.to_numpy(), 0, 1), pred) ), index = X_test.index, columns =X_test.columns)
+            if h > 0:
+                predictions_mlp_recursive = np.hstack( (predictions_mlp_recursive, pred) )
+            else:
+                predictions_mlp_recursive = pred
+        #predictions_mlp_recursive = pd.DataFrame(predictions_mlp_recursive, columns=['t+'+str(t) for t in range(1, HORIZON+1)])
+    
+        #predictions_mlp_multioutput = model_mlp_multioutput.predict(X_test)
+        data_predictions[series_name[5:]] = pd.Series(predictions_mlp_recursive[0], index=data_predictions.index)
+        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+
+    return data_predictions

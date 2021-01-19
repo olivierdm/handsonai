@@ -107,6 +107,7 @@ if p_difference:
 #############################################################################
 #############################################################################
 
+
 #%%######### NAIVE METHODS       ############################################
 HORIZON = 21
 
@@ -193,7 +194,7 @@ smape_arrays['smape_fb_prophet_mod'] = np.array(list(calculate_smape_df(predicti
 stl_arima_pred = stl_arima_method_pred(training_data,HORIZON,(2,1,1))
 if show_plot:
     plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,stl_arima_pred,title="STL Arima prediction",size=[2,2])
-smape_arrays['smape_stl_arima'] = np.array(list(calculate_smape_df(prediction_reference_data,stl_arima_pred).values())).mean()
+smape_arrays['smape_stl_arima'] = np.array(list(calculate_smape_df(prediction_reference_data,stl_arima_pred).values()))
 
 #%%
 #Print mean of smape values:
@@ -220,38 +221,40 @@ def sarimax_method_pred(training_data,HORIZON,data_is_stationary=False):
     return data_predictions
 
 sarimax_pred = sarimax_method_pred(training_data, HORIZON,data_is_stationary=False)
+smape_arrays['smape_sarimax'] = np.array(list(calculate_smape_df(prediction_reference_data,sarimax_pred).values()))
+
 #sarimax_stat_pred = sarimax_method_pred(data2[:-HORIZON], HORIZON,data_is_stationary=True)
 
 
 
-#%%######### CNN                 ############################################
+#%%######### MLP                 ############################################
 
-#WORK IN PROGRESS OLIVIER
 
-def to_supervised(train, n_input, n_out=7):
-	# flatten data
-	data = train.reshape((train.shape[0]*train.shape[1], train.shape[2]))
-	X, y = list(), list()
-	in_start = 0
-	# step over the entire history one time step at a time
-	for _ in range(len(data)):
-		# define the end of the input sequence
-		in_end = in_start + n_input
-		out_end = in_end + n_out
-		# ensure we have enough data for this instance
-		if out_end <= len(data):
-			x_input = data[in_start:in_end, 0]
-			x_input = x_input.reshape((len(x_input), 1))
-			X.append(x_input)
-			y.append(data[in_end:out_end, 0])
-		# move along one time step
-		in_start += 1
-	return array(X), array(y)
+mlp_multioutput_pred = mlp_multioutput_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas,p_difference)
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,mlp_multioutput_pred.filter(regex="^series"),title="MLP multioutput prediction",size=[6,2])
+smape_arrays['smape_mlp_multioutput'] = np.array(list(calculate_smape_df(prediction_reference_data,mlp_multioutput_pred).values()))
+
+
+#%%
+#
 
 
 
+#%%
+
+#########################
+
+mlp_recursive_pred = mlp_recursive_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas,p_difference)
+if show_plot:
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,mlp_recursive_pred.filter(regex="^series"),title="MLP recursive prediction",size=[6,2])
+smape_arrays['smape_mlp_recursive'] = np.array(list(calculate_smape_df(prediction_reference_data,mlp_recursive_pred).values()))
+
+#%%
+predictions_combination = (predictions_mlp_multioutput + predictions_mlp_recursive)/2
 
 
+np.array(predictions_mlp_multioutput)[0]
 
 #############################################################################
 #############################################################################
