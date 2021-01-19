@@ -7,7 +7,7 @@ from keras.layers import GRU, Dense, RepeatVector, TimeDistributed, Flatten, Inp
     #X_train = X_train.values.reshape( (X_train.shape[0], X_train.shape[1], 1) )
     #X_valid = X_valid.values.reshape( (X_valid.shape[0], X_valid.shape[1], 1) )
 def rnn_vector_output(train_inputs, valid_inputs, RECURRENT_MODEL, LATENT_DIM, BATCH_SIZE, EPOCHS, LAG, HORIZON, 
-                    loss, optimizer, earlystop, best_val, verbose):
+                    loss, optimizer, earlystop, best_val, verbose, predict_only=False):
 
     model = Sequential()
     model.add(RECURRENT_MODEL(LATENT_DIM, input_shape=(LAG, 1)))
@@ -23,10 +23,13 @@ def rnn_vector_output(train_inputs, valid_inputs, RECURRENT_MODEL, LATENT_DIM, B
     #                     validation_data=(X_valid, y_valid),
     #                     callbacks=[earlystop, best_val],
     #                     verbose=1)
-    history = model.fit(train_inputs['encoder_input'], train_inputs['target'],
-        batch_size=BATCH_SIZE,
-        epochs=EPOCHS,
-        validation_data=(valid_inputs['encoder_input'], valid_inputs['target']),
-        callbacks=[earlystop, best_val],
-        verbose=verbose)
-    return model, history
+    if predict_only:
+        return model
+    else:
+        history = model.fit(train_inputs['encoder_input'], train_inputs['target'],
+            batch_size=BATCH_SIZE,
+            epochs=EPOCHS,
+            validation_data=(valid_inputs['encoder_input'], valid_inputs['target']),
+            callbacks=[earlystop, best_val],
+            verbose=verbose)
+        return model, history

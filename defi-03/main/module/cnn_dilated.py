@@ -8,7 +8,7 @@ from keras.layers import GRU, Dense, RepeatVector, TimeDistributed, Flatten, Inp
 #                loss, optimizer, earlystop, best_val):
 
 def cnn_dilated(train_inputs, valid_inputs, LATENT_DIM, KERNEL_SIZE, BATCH_SIZE, EPOCHS, LAG, HORIZON, 
-                loss, optimizer, earlystop, best_val, verbose = 0):
+                loss, optimizer, earlystop, best_val, verbose = 0, predict_only=False):
 
     #X_train = X_train.values.reshape( (X_train.shape[0], X_train.shape[1], 1) )
     #X_valid = X_valid.values.reshape( (X_valid.shape[0], X_valid.shape[1], 1) )
@@ -30,11 +30,14 @@ def cnn_dilated(train_inputs, valid_inputs, LATENT_DIM, KERNEL_SIZE, BATCH_SIZE,
     #                     callbacks=[earlystop, best_val],
     #                     verbose=1)
     
-    history = model.fit(train_inputs['encoder_input'],
-                train_inputs['target'],
-                    batch_size=BATCH_SIZE,
-                    epochs=EPOCHS,
-                    validation_data=(valid_inputs['encoder_input'], valid_inputs['target']),
-                    callbacks=[earlystop, best_val],
-                    verbose=verbose)
-    return model, history
+    if predict_only:
+        return model
+    else:
+        history = model.fit(train_inputs['encoder_input'],
+                    train_inputs['target'],
+                        batch_size=BATCH_SIZE,
+                        epochs=EPOCHS,
+                        validation_data=(valid_inputs['encoder_input'], valid_inputs['target']),
+                        callbacks=[earlystop, best_val],
+                        verbose=verbose)
+        return model, history

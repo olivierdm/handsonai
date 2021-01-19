@@ -247,6 +247,30 @@ smape_arrays['smape_mlp_recursive'] = np.array(list(calculate_smape_df(predictio
 mlp_combination_pred = (mlp_recursive_pred + mlp_multioutput_pred)/2
 print(np.array(list(calculate_smape_df(prediction_reference_data,mlp_combination_pred).values())).mean())
 
+#%%
+#########################
+
+
+cnn_pred = cnn_method_pred(data2[:-HORIZON].filter(regex="series-1"),HORIZON,opt_lambdas,p_difference)
+if show_plot:
+    plot_predictions(training_data.filter(regex="^series-1")[-5*HORIZON:],prediction_reference_data.filter(regex="^series-1"),cnn_pred,title="CNN prediction",size=[4,2],plot_acf_pacf=False)
+smape_arrays['smape_cnn'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex="series-1"),cnn_pred).values()))
+
+#%%
+
+
+rnn_vector_output_pred = rnn_vector_method_pred(data2[:-HORIZON].filter(regex="series-7"),HORIZON,opt_lambdas,p_difference)
+if show_plot:
+    plot_predictions(training_data.filter(regex="^series-7")[-5*HORIZON:],prediction_reference_data.filter(regex="^series-7"),rnn_vector_output_pred,title="RNN Vector Output prediction",size=[3,1],plot_acf_pacf=False)
+smape_arrays['smape_rnn_vector'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex="series-7"),rnn_vector_output_pred).values()))
+
+#%%
+
+str_filter = "series-7"
+rnn_encoder_decoder_pred = rnn_enc_dec_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
+if show_plot:
+    plot_predictions(training_data.filter(regex=str_filter)[-5*HORIZON:],prediction_reference_data.filter(regex=str_filter),rnn_encoder_decoder_pred,title="RNN Encoder-Decoder prediction",size=[4,1],plot_acf_pacf=False)
+smape_arrays['smape_rnn_encoder_decoder'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex="series-7"),rnn_encoder_decoder_pred).values()))
 
 
 #############################################################################
@@ -310,11 +334,13 @@ combined_predictions = pd.DataFrame(index=avg_pred.index)
 for i,series_name in enumerate(data.filter(regex="^series").columns):
     combined_predictions[series_name]=globals()[best_algorithm_per_series[series_name][6:]+"_pred"][series_name]        
 
-mlp_multioutput_pred = mlp_multioutput_method_pred(data2,HORIZON,opt_lambdas,p_difference,True)
+mlp_multioutput_pred = mlp_multioutput_method_pred(data2.filter(regex="series-1"),HORIZON,opt_lambdas,p_difference)
 
 mlp_recursive_pred = mlp_recursive_method_pred(data2,HORIZON,opt_lambdas,p_difference,True)
 
 mlp_combination_pred = (mlp_recursive_pred + mlp_multioutput_pred)/2
+
+rnn_encoder_decoder_pred = rnn_enc_dec_method_pred(data2,HORIZON,opt_lambdas,p_difference)
 
 #############################################################################
 #############################################################################

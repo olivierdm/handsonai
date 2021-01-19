@@ -322,11 +322,12 @@ def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,p
     LATENT_DIM = 50 #5   # number of units in the RNN layer
     BATCH_SIZE = 32  # number of samples per mini-batch
     EPOCHS = 100      # maximum number of times the training algorithm will cycle through all samples
-    loss = 'mse' # Loss function to be used to optimize the model parameters
+    loss = 'mae' #sme Loss function to be used to optimize the model parameters
     adam_learning_rate=0.01
     early_stopping_patience=100
     early_stopping_delta=0
-    
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
     #########################
     verbose = 0
     
@@ -371,7 +372,7 @@ def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,p
                                     earlystop = earlystop, 
                                     best_val = best_val,
                                     verbose=verbose)
-            plot_learning_curves(history_mlp_multioutput)
+            plot_learning_curves(history_mlp_multioutput,series_name[5:])
         
             best_epoch = np.argmin(np.array(history_mlp_multioutput.history['val_loss']))+1
             filepath = '../work/' + file_header + '_{:02d}.h5'
@@ -409,7 +410,7 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,pre
     adam_learning_rate=0.01
     early_stopping_patience=100
     early_stopping_delta=0
-    
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
     
     verbose = 0
     
@@ -448,7 +449,7 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,pre
                                     earlystop = earlystop, 
                                     best_val = best_val,
                                     verbose=verbose)
-            plot_learning_curves(history_mlp_recursive)
+            plot_learning_curves(history_mlp_recursive,series_name[5:])
         
             best_epoch = np.argmin(np.array(history_mlp_recursive.history['val_loss']))+1
             filepath = '../work/' + file_header + '_{:02d}.h5'
@@ -484,3 +485,314 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,pre
         data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
 
     return data_predictions
+
+
+
+
+def cnn_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
+    # The number of lagged values.
+    LAG = 30
+    LATENT_DIM = 5 #5   # number of units in the RNN layer
+    KERNEL_SIZE = 10 # for CNN
+    BATCH_SIZE = 32  # number of samples per mini-batch
+    EPOCHS = 100      # maximum number of times the training algorithm will cycle through all samples
+    loss = 'mae' #sme Loss function to be used to optimize the model parameters
+    adam_learning_rate=0.01
+    early_stopping_patience=100
+    early_stopping_delta=0
+    verbose = 0
+    #optimizer_rmsprop = 'RMSprop'
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
+            
+    #########################
+    
+    optimizer_adam = keras.optimizers.Adam(learning_rate=adam_learning_rate) 
+    earlystop = EarlyStopping(monitor='val_loss', 
+                              min_delta=early_stopping_delta, 
+                              patience= early_stopping_patience)
+    
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    for series_name in training_data.filter(regex='^diff-series').columns:
+        print("--- Predicting next values for "+series_name[5:])
+        series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
+        file_header = "model_" + series_name + "_cnn"
+        
+        if not predict_only:
+            # Data split
+            n = len(series_data)
+            n_train = int(0.8 * n)#(n - HORIZON - LAG))
+            n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
+            n_learn = n_train + n_valid
+            
+            train = series_data[:n_train]
+            valid = series_data[n_train:n_learn]
+            #test = series_data[n_learn:n]
+            
+            # From time series to input-output data (also called time series embedding)
+            train_inputs, valid_inputs, X_train, y_train, X_valid, y_valid = \
+                embed_data(train, valid, None, HORIZON, LAG, freq = "D", variable = 'series')
+            
+            
+            best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', period=1)
+            #########################
+            
+            model_cnn, history_cnn = cnn_dilated(train_inputs, valid_inputs, 
+                        LATENT_DIM = LATENT_DIM, 
+                        KERNEL_SIZE = KERNEL_SIZE,
+                        BATCH_SIZE = BATCH_SIZE, 
+                        EPOCHS = EPOCHS, 
+                        LAG = LAG, 
+                        HORIZON = HORIZON, 
+                        loss = loss, 
+                        optimizer = optimizer_adam,
+                        earlystop = earlystop, 
+                        best_val = best_val,
+                        verbose=verbose)
+
+            plot_learning_curves(history_cnn,series_name[5:])
+        
+            best_epoch = np.argmin(np.array(history_cnn.history['val_loss']))+1
+            filepath = '../work/' + file_header + '_{:02d}.h5'
+            model_cnn.load_weights(filepath.format(best_epoch))
+            
+        else:
+            model_cnn = cnn_dilated(None, None, 
+                        LATENT_DIM = LATENT_DIM, 
+                        KERNEL_SIZE = KERNEL_SIZE,
+                        BATCH_SIZE = BATCH_SIZE, 
+                        EPOCHS = EPOCHS, 
+                        LAG = LAG, 
+                        HORIZON = HORIZON, 
+                        loss = loss, 
+                        optimizer = optimizer_adam,
+                        earlystop = earlystop, 
+                        best_val = None,
+                        verbose=verbose,predict_only=True)
+            list_of_files = glob.glob('../work/' + file_header + '_*.h5') # * means all if need specific format then *.csv
+            filepath = sorted(list_of_files)[-1]
+            model_cnn.load_weights(filepath)
+
+        #Generate input for prediction
+        tensor_structure = {'encoder_input':(range(-LAG+1, 1), ["series"]), 'decoder_input':(range(0, HORIZON), ["series"])}
+        data_inputs = TimeSeriesTensor(series_data[-LAG-HORIZON:], "series", HORIZON, tensor_structure, freq = "D")
+        DT = data_inputs.dataframe
+        X_test = DT.iloc[:, DT.columns.get_level_values(0)=='encoder_input']
+        X_test.values[0] =training_data[series_name][-LAG:].values
+        
+        predictions_cnn = model_cnn.predict(X_test.values.reshape(1,LAG,1))
+        
+        data_predictions[series_name[5:]] = pd.Series(predictions_cnn[0], index=data_predictions.index)
+        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+
+    return data_predictions
+
+
+
+
+
+def rnn_vector_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
+    # The number of lagged values.
+    LAG = 30
+    LATENT_DIM = 5 #5   # number of units in the RNN layer
+    KERNEL_SIZE = 10 # for CNN
+    BATCH_SIZE = 32  # number of samples per mini-batch
+    EPOCHS = 100      # maximum number of times the training algorithm will cycle through all samples
+    loss = 'mae' #sme Loss function to be used to optimize the model parameters
+    adam_learning_rate=0.01
+    early_stopping_patience=100
+    early_stopping_delta=0
+    verbose = 0
+    RECURRENT_MODEL = GRU #SimpleRNN # GRU # LSTM
+    #optimizer_rmsprop = 'RMSprop'
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
+
+            
+    #########################
+    
+    optimizer_adam = keras.optimizers.Adam(learning_rate=adam_learning_rate) 
+    earlystop = EarlyStopping(monitor='val_loss', 
+                              min_delta=early_stopping_delta, 
+                              patience= early_stopping_patience)
+    
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    for series_name in training_data.filter(regex='^diff-series').columns:
+        print("--- Predicting next values for "+series_name[5:])
+        series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
+        file_header = "model_" + series_name + "_rnn_vector"
+        
+        if not predict_only:
+            # Data split
+            n = len(series_data)
+            n_train = int(0.8 * n)#(n - HORIZON - LAG))
+            n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
+            n_learn = n_train + n_valid
+            
+            train = series_data[:n_train]
+            valid = series_data[n_train:n_learn]
+            #test = series_data[n_learn:n]
+            
+            # From time series to input-output data (also called time series embedding)
+            train_inputs, valid_inputs, X_train, y_train, X_valid, y_valid = \
+                embed_data(train, valid, None, HORIZON, LAG, freq = "D", variable = 'series')
+            
+            
+            best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', save_freq='epoch')
+            #########################
+            
+            model_rnn_vector_output, history_rnn_vector_output = rnn_vector_output(train_inputs, valid_inputs, 
+                                    RECURRENT_MODEL = RECURRENT_MODEL,
+                                    LATENT_DIM = LATENT_DIM, 
+                                    BATCH_SIZE = BATCH_SIZE, 
+                                    EPOCHS = EPOCHS, 
+                                    LAG = LAG, 
+                                    HORIZON = HORIZON, 
+                                    loss = loss, 
+                                    optimizer = optimizer_adam,
+                                    earlystop = earlystop, 
+                                    best_val = best_val,
+                                    verbose=verbose)
+            
+            plot_learning_curves(history_rnn_vector_output,series_name[5:])
+            
+            best_epoch = np.argmin(np.array(history_rnn_vector_output.history['val_loss']))+1
+            filepath = '../work/' + file_header + '_{:02d}.h5'
+            model_rnn_vector_output.load_weights(filepath.format(best_epoch))
+            
+        else:
+            model_rnn_vector_output = rnn_vector_output(None, None, 
+                                    RECURRENT_MODEL = RECURRENT_MODEL,
+                                    LATENT_DIM = LATENT_DIM, 
+                                    BATCH_SIZE = BATCH_SIZE, 
+                                    EPOCHS = EPOCHS, 
+                                    LAG = LAG, 
+                                    HORIZON = HORIZON, 
+                                    loss = loss, 
+                                    optimizer = optimizer_adam,
+                                    earlystop = earlystop, 
+                                    best_val = None,
+                                    verbose=verbose)
+            list_of_files = glob.glob('../work/' + file_header + '_*.h5') # * means all if need specific format then *.csv
+            filepath = sorted(list_of_files)[-1]
+            model_cnn.load_weights(filepath)
+
+        #Generate input for prediction
+        tensor_structure = {'encoder_input':(range(-LAG+1, 1), ["series"]), 'decoder_input':(range(0, HORIZON), ["series"])}
+        data_inputs = TimeSeriesTensor(series_data[-LAG-HORIZON:], "series", HORIZON, tensor_structure, freq = "D")
+        DT = data_inputs.dataframe
+        X_test = DT.iloc[:, DT.columns.get_level_values(0)=='encoder_input']
+        X_test.values[0] =training_data[series_name][-LAG:].values
+        
+        
+        predictions_rnn_vector_output = model_rnn_vector_output.predict(X_test.values.reshape(1,LAG,1))
+        
+        data_predictions[series_name[5:]] = pd.Series(predictions_rnn_vector_output[0], index=data_predictions.index)
+        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+
+    return data_predictions
+
+def rnn_enc_dec_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
+    # The number of lagged values.
+    LAG = 30
+    LATENT_DIM = 5 #5   # number of units in the RNN layer
+    KERNEL_SIZE = 10 # for CNN
+    BATCH_SIZE = 32  # number of samples per mini-batch
+    EPOCHS = 100      # maximum number of times the training algorithm will cycle through all samples
+    loss = 'mae' #sme Loss function to be used to optimize the model parameters
+    adam_learning_rate=0.01
+    early_stopping_patience=100
+    early_stopping_delta=0
+    verbose = 0
+    RECURRENT_MODEL = GRU #SimpleRNN # GRU # LSTM
+    #optimizer_rmsprop = 'RMSprop'
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
+
+            
+    #########################
+    
+    optimizer_adam = keras.optimizers.Adam(learning_rate=adam_learning_rate) 
+    earlystop = EarlyStopping(monitor='val_loss', 
+                              min_delta=early_stopping_delta, 
+                              patience= early_stopping_patience)
+    
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
+    for series_name in training_data.filter(regex='^diff-series').columns:
+        print("--- Predicting next values for "+series_name[5:])
+        series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
+        file_header = "model_" + series_name + "_rnn_vector"
+        
+        if not predict_only:
+            # Data split
+            n = len(series_data)
+            n_train = int(0.8 * n)#(n - HORIZON - LAG))
+            n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
+            n_learn = n_train + n_valid
+            
+            train = series_data[:n_train]
+            valid = series_data[n_train:n_learn]
+            #test = series_data[n_learn:n]
+            
+            # From time series to input-output data (also called time series embedding)
+            train_inputs, valid_inputs, X_train, y_train, X_valid, y_valid = \
+                embed_data(train, valid, None, HORIZON, LAG, freq = "D", variable = 'series')
+            
+            
+            best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', save_freq='epoch')
+            #########################
+            
+            model_rnn_encoder_decoder, history_rnn_encoder_decoder = rnn_encoder_decoder(train_inputs, valid_inputs, 
+                                    RECURRENT_MODEL = RECURRENT_MODEL,
+                                    LATENT_DIM = LATENT_DIM, 
+                                    BATCH_SIZE = BATCH_SIZE, 
+                                    EPOCHS = EPOCHS, 
+                                    LAG = LAG, 
+                                    HORIZON = HORIZON, 
+                                    loss = loss, 
+                                    optimizer = optimizer_adam,
+                                    earlystop = earlystop, 
+                                    best_val = best_val,
+                                    verbose=verbose)
+            
+            plot_learning_curves(history_rnn_encoder_decoder,series_name[5:])
+                        
+            best_epoch = np.argmin(np.array(history_rnn_encoder_decoder.history['val_loss']))+1
+            filepath = '../work/' + file_header + '_{:02d}.h5'
+            model_rnn_encoder_decoder.load_weights(filepath.format(best_epoch))
+            
+        else:
+            model_rnn_encoder_decoder = rnn_encoder_decoder(None, None, 
+                                    RECURRENT_MODEL = RECURRENT_MODEL,
+                                    LATENT_DIM = LATENT_DIM, 
+                                    BATCH_SIZE = BATCH_SIZE, 
+                                    EPOCHS = EPOCHS, 
+                                    LAG = LAG, 
+                                    HORIZON = HORIZON, 
+                                    loss = loss, 
+                                    optimizer = optimizer_adam,
+                                    earlystop = earlystop, 
+                                    best_val = None,
+                                    verbose=verbose,
+                                    predict_only=True)
+            list_of_files = glob.glob('../work/' + file_header + '_*.h5') # * means all if need specific format then *.csv
+            filepath = sorted(list_of_files)[-1]
+            model_rnn_encoder_decoder.load_weights(filepath)
+
+        #Generate input for prediction
+        tensor_structure = {'encoder_input':(range(-LAG+1, 1), ["series"]), 'decoder_input':(range(0, HORIZON), ["series"])}
+        data_inputs = TimeSeriesTensor(series_data[-LAG-HORIZON:], "series", HORIZON, tensor_structure, freq = "D")
+        DT = data_inputs.dataframe
+        X_test = DT.iloc[:, DT.columns.get_level_values(0)=='encoder_input']
+        X_test.values[0] =training_data[series_name][-LAG:].values
+        
+        
+        predictions_rnn_encoder_decoder = model_rnn_encoder_decoder.predict(X_test.values.reshape(1,LAG,1))
+        
+        data_predictions[series_name[5:]] = pd.Series(predictions_rnn_encoder_decoder[0], index=data_predictions.index)
+        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+
+    return data_predictions
+
