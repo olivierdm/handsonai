@@ -316,7 +316,7 @@ def fb_prophet_method_pred(training_data,HORIZON,opt_lambdas=None, additive_mode
     return data_predictions#data_predictions
 
 
-def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
+def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
     # The number of lagged values.
     LAG = 30
     LATENT_DIM = 50 #5   # number of units in the RNN layer
@@ -327,54 +327,64 @@ def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
     early_stopping_patience=100
     early_stopping_delta=0
     
+    #########################
+    verbose = 0
+    
+    optimizer_adam = keras.optimizers.Adam(learning_rate=adam_learning_rate) 
+    earlystop = EarlyStopping(monitor='val_loss', 
+                              min_delta=early_stopping_delta, 
+                              patience= early_stopping_patience)
+    
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^diff-series').columns:
+        print("Predicting next values for "+series_name[5:])
         series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
-        
-        # Data split
-        n = len(series_data)
-        n_train = int(0.8 * n)#(n - HORIZON - LAG))
-        n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
-        n_learn = n_train + n_valid
-        
-        train = series_data[:n_train]
-        valid = series_data[n_train:n_learn]
-        #test = series_data[n_learn:n]
-        
-        # From time series to input-output data (also called time series embedding)
-        train_inputs, valid_inputs, X_train, y_train, X_valid, y_valid, \
-            = embed_data(train, valid, None, HORIZON, LAG, freq = "D", variable = 'series')
-                
-        #########################
         file_header = "model_" + series_name + "_mlp_multioutput"
-        verbose = 0
+
+        if not predict_only:
+            # Data split
+            n = len(series_data)
+            n_train = int(0.8 * n)#(n - HORIZON - LAG))
+            n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
+            n_learn = n_train + n_valid
+            
+            train = series_data[:n_train]
+            valid = series_data[n_train:n_learn]
+            #test = series_data[n_learn:n]
+            
+            # From time series to input-output data (also called time series embedding)
+            train_inputs, valid_inputs, X_train, y_train, X_valid, y_valid, \
+                = embed_data(train, valid, None, HORIZON, LAG, freq = "D", variable = 'series')
+            
+            
+            best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', period=1)
+            #########################
+            
+            model_mlp_multioutput, history_mlp_multioutput = mlp_multioutput(X_train, y_train, X_valid, y_valid, 
+                                    LATENT_DIM = LATENT_DIM, 
+                                    BATCH_SIZE = BATCH_SIZE, 
+                                    EPOCHS = EPOCHS, 
+                                    LAG = LAG, 
+                                    HORIZON = HORIZON, 
+                                    loss = loss, 
+                                    optimizer = optimizer_adam,
+                                    earlystop = earlystop, 
+                                    best_val = best_val,
+                                    verbose=verbose)
+            plot_learning_curves(history_mlp_multioutput)
         
-        optimizer_adam = keras.optimizers.Adam(learning_rate=adam_learning_rate) 
-        earlystop = EarlyStopping(monitor='val_loss', 
-                                  min_delta=early_stopping_delta, 
-                                  patience= early_stopping_patience)
-        
-        
-        
-        best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', period=1)
-        #########################
-        
-        model_mlp_multioutput, history_mlp_multioutput = mlp_multioutput(X_train, y_train, X_valid, y_valid, 
-                                LATENT_DIM = LATENT_DIM, 
-                                BATCH_SIZE = BATCH_SIZE, 
-                                EPOCHS = EPOCHS, 
-                                LAG = LAG, 
-                                HORIZON = HORIZON, 
-                                loss = loss, 
-                                optimizer = optimizer_adam,
-                                earlystop = earlystop, 
-                                best_val = best_val,
-                                verbose=verbose)
-        plot_learning_curves(history_mlp_multioutput)
-        
-        best_epoch = np.argmin(np.array(history_mlp_multioutput.history['val_loss']))+1
-        filepath = '../work/' + file_header + '_{:02d}.h5'
-        model_mlp_multioutput.load_weights(filepath.format(best_epoch))
+            best_epoch = np.argmin(np.array(history_mlp_multioutput.history['val_loss']))+1
+            filepath = '../work/' + file_header + '_{:02d}.h5'
+            model_mlp_multioutput.load_weights(filepath.format(best_epoch))
+            
+        else:
+            model_mlp_multioutput = Sequential()
+            model_mlp_multioutput.add(Dense(LATENT_DIM, activation="relu", input_shape=(LAG,)))
+            model_mlp_multioutput.add(Dense(HORIZON))
+            model_mlp_multioutput.compile(optimizer=optimizer_adam, loss=loss)
+            list_of_files = glob.glob('../work/' + file_header + '_*.h5') # * means all if need specific format then *.csv
+            filepath = sorted(list_of_files)[-1]
+            model_mlp_multioutput.load_weights(filepath)
 
         #Generate input for prediction
         tensor_structure = {'encoder_input':(range(-LAG+1, 1), ["series"]), 'decoder_input':(range(0, HORIZON), ["series"])}
@@ -390,7 +400,7 @@ def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
 
     return data_predictions
 
-def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
+def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
     LAG=30
     LATENT_DIM = 5   # number of units in the RNN layer
     BATCH_SIZE = 32  # number of samples per mini-batch
@@ -413,33 +423,44 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
         best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', period=1)
         #########################
         series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
-        # Data split
-        n = len(series_data)
-        n_train = int(0.8 * n)#(n - HORIZON - LAG))
-        n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
-        n_learn = n_train + n_valid
         
-        train = series_data[:n_train]
-        valid = series_data[n_train:n_learn]
-        #test = series_data[n_learn:n]
-        _, _, X_train_onestep, y_train_onestep, X_valid_onestep, y_valid_onestep = embed_data(train, valid, None, 1, LAG, freq = None, variable = 'series')
+        if not predict_only:
+            # Data split
+            n = len(series_data)
+            n_train = int(0.8 * n)#(n - HORIZON - LAG))
+            n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
+            n_learn = n_train + n_valid
+            
+            
+            train = series_data[:n_train]
+            valid = series_data[n_train:n_learn]
+            #test = series_data[n_learn:n]
+            _, _, X_train_onestep, y_train_onestep, X_valid_onestep, y_valid_onestep = embed_data(train, valid, None, 1, LAG, freq = None, variable = 'series')
+            
+            model_mlp_recursive, history_mlp_recursive = mlp_multioutput(X_train_onestep, y_train_onestep, X_valid_onestep, y_valid_onestep, 
+                                    LATENT_DIM = LATENT_DIM, 
+                                    BATCH_SIZE = BATCH_SIZE, 
+                                    EPOCHS = EPOCHS, 
+                                    LAG = LAG, 
+                                    HORIZON = 1, 
+                                    loss = loss, 
+                                    optimizer = optimizer_adam,
+                                    earlystop = earlystop, 
+                                    best_val = best_val,
+                                    verbose=verbose)
+            plot_learning_curves(history_mlp_recursive)
         
-        model_mlp_recursive, history_mlp_recursive = mlp_multioutput(X_train_onestep, y_train_onestep, X_valid_onestep, y_valid_onestep, 
-                                LATENT_DIM = LATENT_DIM, 
-                                BATCH_SIZE = BATCH_SIZE, 
-                                EPOCHS = EPOCHS, 
-                                LAG = LAG, 
-                                HORIZON = 1, 
-                                loss = loss, 
-                                optimizer = optimizer_adam,
-                                earlystop = earlystop, 
-                                best_val = best_val,
-                                verbose=verbose)
-        plot_learning_curves(history_mlp_recursive)
-        
-        best_epoch = np.argmin(np.array(history_mlp_recursive.history['val_loss']))+1
-        filepath = '../work/' + file_header + '_{:02d}.h5'
-        model_mlp_recursive.load_weights(filepath.format(best_epoch))
+            best_epoch = np.argmin(np.array(history_mlp_recursive.history['val_loss']))+1
+            filepath = '../work/' + file_header + '_{:02d}.h5'
+            model_mlp_recursive.load_weights(filepath.format(best_epoch))
+        else:
+            model_mlp_recursive = Sequential()
+            model_mlp_recursive.add(Dense(LATENT_DIM, activation="relu", input_shape=(LAG,)))
+            model_mlp_recursive.add(Dense(1))
+            model_mlp_recursive.compile(optimizer=optimizer_adam, loss=loss)
+            list_of_files = glob.glob('../work/' + file_header + '_*.h5') # * means all if need specific format then *.csv
+            filepath = sorted(list_of_files)[-1]
+            model_mlp_recursive.load_weights(filepath)
         
         #Generate input for prediction
         tensor_structure = {'encoder_input':(range(-LAG+1, 1), ["series"]), 'decoder_input':(range(0, HORIZON), ["series"])}

@@ -227,7 +227,7 @@ smape_arrays['smape_sarimax'] = np.array(list(calculate_smape_df(prediction_refe
 
 
 
-#%%######### MLP                 ############################################
+#%%######### MLP MULTIOUTPUT     ############################################
 
 
 mlp_multioutput_pred = mlp_multioutput_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas,p_difference)
@@ -236,14 +236,7 @@ if show_plot:
 smape_arrays['smape_mlp_multioutput'] = np.array(list(calculate_smape_df(prediction_reference_data,mlp_multioutput_pred).values()))
 
 
-#%%
-#
-
-
-
-#%%
-
-#########################
+#%%######### MLP RECURSIVE     ##############################################
 
 mlp_recursive_pred = mlp_recursive_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas,p_difference)
 if show_plot:
@@ -251,10 +244,10 @@ if show_plot:
 smape_arrays['smape_mlp_recursive'] = np.array(list(calculate_smape_df(prediction_reference_data,mlp_recursive_pred).values()))
 
 #%%
-predictions_combination = (predictions_mlp_multioutput + predictions_mlp_recursive)/2
+mlp_combination_pred = (mlp_recursive_pred + mlp_multioutput_pred)/2
+print(np.array(list(calculate_smape_df(prediction_reference_data,mlp_combination_pred).values())).mean())
 
 
-np.array(predictions_mlp_multioutput)[0]
 
 #############################################################################
 #############################################################################
@@ -317,7 +310,11 @@ combined_predictions = pd.DataFrame(index=avg_pred.index)
 for i,series_name in enumerate(data.filter(regex="^series").columns):
     combined_predictions[series_name]=globals()[best_algorithm_per_series[series_name][6:]+"_pred"][series_name]        
 
+mlp_multioutput_pred = mlp_multioutput_method_pred(data2,HORIZON,opt_lambdas,p_difference,True)
 
+mlp_recursive_pred = mlp_recursive_method_pred(data2,HORIZON,opt_lambdas,p_difference,True)
+
+mlp_combination_pred = (mlp_recursive_pred + mlp_multioutput_pred)/2
 
 #############################################################################
 #############################################################################
@@ -336,6 +333,8 @@ export_predictions_csv(snaive_exp_pred,"snaive_exp.csv")
 export_predictions_csv(multi_pred,"multi_combo.csv")
 
 export_predictions_csv(combined_predictions,"multi_best_selected.csv")
+
+export_predictions_csv(mlp_combination_pred,"mlp_combination_pred.csv")
 
 
 
