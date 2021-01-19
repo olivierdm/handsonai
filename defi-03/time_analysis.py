@@ -228,11 +228,12 @@ smape_arrays['smape_sarimax'] = np.array(list(calculate_smape_df(prediction_refe
 
 
 #%%######### MLP MULTIOUTPUT     ############################################
+str_filter = "series-7"
 
 
 mlp_multioutput_pred = mlp_multioutput_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas,p_difference)
 if show_plot:
-    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,mlp_multioutput_pred.filter(regex="^series"),title="MLP multioutput prediction",size=[6,2])
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,mlp_multioutput_pred.filter(regex=str_filter),title="MLP multioutput prediction",size=[6,2])
 smape_arrays['smape_mlp_multioutput'] = np.array(list(calculate_smape_df(prediction_reference_data,mlp_multioutput_pred).values()))
 
 
@@ -240,7 +241,7 @@ smape_arrays['smape_mlp_multioutput'] = np.array(list(calculate_smape_df(predict
 
 mlp_recursive_pred = mlp_recursive_method_pred(data2[:-HORIZON],HORIZON,opt_lambdas,p_difference)
 if show_plot:
-    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,mlp_recursive_pred.filter(regex="^series"),title="MLP recursive prediction",size=[6,2])
+    plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,mlp_recursive_pred.filter(regex=str_filter),title="MLP recursive prediction",size=[6,2])
 smape_arrays['smape_mlp_recursive'] = np.array(list(calculate_smape_df(prediction_reference_data,mlp_recursive_pred).values()))
 
 #%%
@@ -251,26 +252,25 @@ print(np.array(list(calculate_smape_df(prediction_reference_data,mlp_combination
 #########################
 
 
-cnn_pred = cnn_method_pred(data2[:-HORIZON].filter(regex="series-1"),HORIZON,opt_lambdas,p_difference)
+cnn_pred = cnn_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
-    plot_predictions(training_data.filter(regex="^series-1")[-5*HORIZON:],prediction_reference_data.filter(regex="^series-1"),cnn_pred,title="CNN prediction",size=[4,2],plot_acf_pacf=False)
-smape_arrays['smape_cnn'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex="series-1"),cnn_pred).values()))
+    plot_predictions(training_data.filter(regex=str_filter)[-5*HORIZON:],prediction_reference_data.filter(regex=str_filter),cnn_pred,title="CNN prediction",size=[4,2],plot_acf_pacf=False)
+smape_arrays['smape_cnn'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),cnn_pred).values()))
 
 #%%
 
 
-rnn_vector_output_pred = rnn_vector_method_pred(data2[:-HORIZON].filter(regex="series-7"),HORIZON,opt_lambdas,p_difference)
+rnn_vector_output_pred = rnn_vector_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
-    plot_predictions(training_data.filter(regex="^series-7")[-5*HORIZON:],prediction_reference_data.filter(regex="^series-7"),rnn_vector_output_pred,title="RNN Vector Output prediction",size=[3,1],plot_acf_pacf=False)
-smape_arrays['smape_rnn_vector'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex="series-7"),rnn_vector_output_pred).values()))
+    plot_predictions(training_data.filter(regex=str_filter)[-5*HORIZON:],prediction_reference_data.filter(regex=str_filter),rnn_vector_output_pred,title="RNN Vector Output prediction",size=[3,1],plot_acf_pacf=False)
+smape_arrays['smape_rnn_vector'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),rnn_vector_output_pred).values()))
 
 #%%
 
-str_filter = "series-7"
 rnn_encoder_decoder_pred = rnn_enc_dec_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
     plot_predictions(training_data.filter(regex=str_filter)[-5*HORIZON:],prediction_reference_data.filter(regex=str_filter),rnn_encoder_decoder_pred,title="RNN Encoder-Decoder prediction",size=[4,1],plot_acf_pacf=False)
-smape_arrays['smape_rnn_encoder_decoder'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex="series-7"),rnn_encoder_decoder_pred).values()))
+smape_arrays['smape_rnn_encoder_decoder'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),rnn_encoder_decoder_pred).values()))
 
 
 #############################################################################
