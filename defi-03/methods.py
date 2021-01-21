@@ -188,10 +188,17 @@ def snaive_decomp_method_pred(training_data,HORIZON,opt_lambdas):
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^series').columns:
         
-        stl = STL(training_data["boxcox-"+series_name],
-                  period = 7,
-                  robust = True, 
-                  trend_deg=0)
+        if opt_lambdas==[]:
+            stl = STL(training_data["log-"+series_name],
+                      period = 7,
+                      robust = True, 
+                      trend_deg=0)
+        else:
+            stl = STL(training_data["boxcox-"+series_name],
+                      period = 7,
+                      robust = True, 
+                      trend_deg=0)
+
         result = stl.fit()
         
         #predict seasonality
@@ -206,6 +213,7 @@ def snaive_decomp_method_pred(training_data,HORIZON,opt_lambdas):
         seasonal_prediction=np.concatenate((X,X,X),axis=None)
         
         #predict trend
+        
         #compute moving average of gradient and extrapolate with it
         #t_lag = trend lag
         g=np.gradient(result.trend[-t_lag:])
@@ -219,9 +227,13 @@ def snaive_decomp_method_pred(training_data,HORIZON,opt_lambdas):
         for i in range(1,HORIZON): 
           trend_prediction.append(trend_prediction[-1]+g_ma)
         
+        #trend_prediction = snaive_exp_smoothing_method_pred(pd.DataFrame(result.trend,index=training_data.index,columns=[series_name]),HORIZON,METHOD="holt",optimized=False,smoothing_slope=0.018,smoothing_level=.34)
         
         #total prediction
-        data_predictions[series_name]=inv_boxcox(trend_prediction+seasonal_prediction,opt_lambdas[series_name])
+        if opt_lambdas==[]:
+            data_predictions[series_name]=np.exp(trend_prediction+seasonal_prediction)
+        else:
+            data_predictions[series_name]=inv_boxcox(trend_prediction+seasonal_prediction,opt_lambdas[series_name])
     return data_predictions
 
 
@@ -274,14 +286,14 @@ def snaive_decomp_method_mod_pred(training_data,HORIZON,opt_lambdas):
         data_predictions[series_name]=inv_boxcox(trend_prediction+seasonal_prediction,opt_lambdas[series_name])
     return data_predictions
 
-def fb_prophet_method_pred(training_data,HORIZON,opt_lambdas=None, additive_model=False):
+def fb_prophet_method_pred(training_data,HORIZON,opt_lambdas=None,p_difference=None, additive_model=False):
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     data_predictions['ds']=data_predictions.index
     training_data['ds']=training_data.index
     for series_name in training_data.filter(regex='^series').columns:
         print('Analysing '+series_name)
         if additive_model:
-            training_data['y']=training_data['boxcox-'+series_name]
+            training_data['y']=training_data['diff-'+series_name]
             model = Prophet(seasonality_mode="additive",
                             daily_seasonality=False,
                             weekly_seasonality=True,
@@ -309,12 +321,36 @@ def fb_prophet_method_pred(training_data,HORIZON,opt_lambdas=None, additive_mode
         
         # fit the model
         model.fit(training_data[['ds','y']])
-        if additive_model:
-            data_predictions[series_name] = inv_boxcox(np.array(model.predict(data_predictions[['ds']])['yhat']),opt_lambdas[series_name])
-        else:
-            data_predictions[series_name] = np.array(model.predict(data_predictions[['ds']])['yhat'])
+        data_predictions[series_name] = np.array(model.predict(data_predictions[['ds']])['yhat'])
+        if additive_model==True and not opt_lambdas==None:
+            data_predictions[series_name] = undo_differencing(training_data[:-HORIZON]["log-"+series_name][-p_difference:],data_predictions[series_name],p_difference)
+            data_predictions[series_name] = np.exp(data_predictions[series_name])
+        elif additive_model==True and not opt_lambdas!=None:
+            data_predictions[series_name] = undo_differencing(training_data[:-HORIZON]["boxcox-"+series_name][-p_difference:],data_predictions[series_name],p_difference)
+            data_predictions[series_name] = inv_boxcox(data_predictions[series_name],opt_lambdas[series_name])
     return data_predictions#data_predictions
 
+def sarimax_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
+    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))    
+    
+    for series_name in training_data.filter(regex='diff-series').columns:
+        print('Analysing '+series_name)
+        arima_model = auto_arima(training_data[series_name],
+                         start_p=0,d=0,start_q=0,max_p=1,max_d=2,max_q=1,
+                         start_P=0,D=0,start_Q=0,max_P=1,max_D=2,max_Q=1,m=7,
+                         seasonal=True,stationary=True,
+                         information_criterion='aic')
+        print(arima_model.summary())
+        data_predictions[series_name[5:]]=pd.Series(arima_model.predict(n_periods=HORIZON),
+                                index=data_predictions.index)
+        if opt_lambdas==[]:
+            data_predictions[series_name[5:]] = undo_differencing(training_data["log-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = np.exp(data_predictions[series_name[5:]])
+        else:  
+            data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+
+    return data_predictions
 
 def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
     # The number of lagged values.
@@ -396,9 +432,15 @@ def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,p
         
         predictions_mlp_multioutput = model_mlp_multioutput.predict(X_test)
         data_predictions[series_name[5:]] = pd.Series(predictions_mlp_multioutput[0], index=data_predictions.index)
-        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
-        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+        
+        if opt_lambdas==[]:
+            data_predictions[series_name[5:]] = undo_differencing(training_data["log-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = np.exp(data_predictions[series_name[5:]])
+        else:  
+            data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
 
+        
     return data_predictions
 
 def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
@@ -481,8 +523,12 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,pre
     
         #predictions_mlp_multioutput = model_mlp_multioutput.predict(X_test)
         data_predictions[series_name[5:]] = pd.Series(predictions_mlp_recursive[0], index=data_predictions.index)
-        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
-        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+        if opt_lambdas==[]:
+            data_predictions[series_name[5:]] = undo_differencing(training_data["log-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = np.exp(data_predictions[series_name[5:]])
+        else:  
+            data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
 
     return data_predictions
 
@@ -582,8 +628,12 @@ def cnn_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=
         predictions_cnn = model_cnn.predict(X_test.values.reshape(1,LAG,1))
         
         data_predictions[series_name[5:]] = pd.Series(predictions_cnn[0], index=data_predictions.index)
-        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
-        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+        if opt_lambdas==[]:
+            data_predictions[series_name[5:]] = undo_differencing(training_data["log-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = np.exp(data_predictions[series_name[5:]])
+        else:  
+            data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
 
     return data_predictions
 
@@ -688,8 +738,12 @@ def rnn_vector_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predic
         predictions_rnn_vector_output = model_rnn_vector_output.predict(X_test.values.reshape(1,LAG,1))
         
         data_predictions[series_name[5:]] = pd.Series(predictions_rnn_vector_output[0], index=data_predictions.index)
-        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
-        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+        if opt_lambdas==[]:
+            data_predictions[series_name[5:]] = undo_differencing(training_data["log-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = np.exp(data_predictions[series_name[5:]])
+        else:  
+            data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
 
     return data_predictions
 
@@ -791,8 +845,12 @@ def rnn_enc_dec_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predi
         predictions_rnn_encoder_decoder = model_rnn_encoder_decoder.predict(X_test.values.reshape(1,LAG,1))
         
         data_predictions[series_name[5:]] = pd.Series(predictions_rnn_encoder_decoder[0], index=data_predictions.index)
-        data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
-        data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
+        if opt_lambdas==[]:
+            data_predictions[series_name[5:]] = undo_differencing(training_data["log-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = np.exp(data_predictions[series_name[5:]])
+        else:  
+            data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
+            data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
 
     return data_predictions
 

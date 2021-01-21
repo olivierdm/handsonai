@@ -49,6 +49,10 @@ from sklearn.cluster import KMeans
 
 from main.utils.utils_methods import *
 from main.utils.utils import *
+from main.module.cnn_dilated import *
+from main.module.mlp_multioutput import *
+from main.module.rnn_encoder_decoder import *
+from main.module.rnn_vector_output import *
 from preprocessing import *
 from help_functions import *
 from visualisation import *
@@ -59,6 +63,12 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint
 from main.module.mlp_multioutput import mlp_multioutput
 from keras.models import Sequential
 from keras.layers import Dense
+from keras.models import Model
+from keras.layers import Dense
+from keras.layers import GRU, RepeatVector, TimeDistributed, Flatten, Input
+
+from keras import regularizers
+
 
 
 plt.rcParams['figure.figsize'] = [10, 10]
