@@ -13,7 +13,7 @@ p_difference = 7
 p_seasonal_decompose = False
 
 
-assert p_boxcox!=p_natural_log
+assert not (p_boxcox==True and p_natural_log==True)
 
 #############################################################################
 #############################################################################
@@ -74,7 +74,7 @@ warnings.filterwarnings("ignore")
 for series_name in data.filter(regex='series').columns:
         data[series_name] = remove_outliers(data[series_name],
                                             max_iterations = p_clean_outliers,
-                                            verbose=False)
+                                            verbose=True)
 data2 = data.copy()
 last_prefix = ""
 if p_boxcox:
@@ -100,6 +100,21 @@ if p_boxcox:
 if p_difference:
     plot_all_series(data2.filter(regex='diff-series'), ["diff-"+serie for serie in list_of_series if serie[:6]=="series"],show_legend=False,title="Differenced data (lag={})".format(p_difference))
 
+#%% CHECK IF DIFFERENCED DATA IS NOT WHITE NOISE AND STATIONARY
+
+p_values_df = []
+p_values_ljung = []
+for series_name in data2.filter(regex="^diff-series-").columns:
+    dftest_result = dftest(data2[series_name].dropna())
+    ljungtest_result = acorr_ljungbox(data2[series_name], period = 7, return_df=True)
+    p_values_df.append(dftest_result['p-value'])
+    p_values_ljung.append(max(ljungtest_result['lb_pvalue']))
+    if dftest_result['p-value']>0.01:
+        print("p-value DF-test is significant: {} - {}".format(series_name,dftest_result['p-value']))
+    if max(ljungtest_result['lb_pvalue'])>0.01:
+        print("p-value of LJ-test is significant: {} - {}".format(series_name,max(ljungtest_result['lb_pvalue'])))
+
+
 
 
 #############################################################################
@@ -113,7 +128,6 @@ if p_difference:
 HORIZON = 21
 
 prediction_reference_data = data[-HORIZON:].copy()
-#training_data[training_data.filter(regex='^series').columns] = data.filter(regex='^series').rolling(7).sum()[:-HORIZON]
 training_data = data[:-HORIZON].copy()
 
 #%%
@@ -122,7 +136,7 @@ training_data = data[:-HORIZON].copy()
 #%%
 show_plot = False
 #Predict only subset of series that begin with str_filter
-str_filter = "series-7"
+str_filter = "series-5[0-9]"
 
 smape_arrays = {}
 
@@ -186,31 +200,26 @@ smape_arrays['smape_fb_prophet_mod'] = np.array(list(calculate_smape_df(predicti
 
 #%%######### SARIMA/ARIMA METHODS ###########################################
 
-stl_arima_pred = stl_arima_method_pred(training_data,HORIZON,(2,1,1))
+stl_arima_pred = stl_arima_method_pred(data2[:-HORIZON],HORIZON,(2,0,1),p_difference)
 if show_plot:
     plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,stl_arima_pred,title="STL Arima prediction",size=[2,2])
 smape_arrays['smape_stl_arima'] = np.array(list(calculate_smape_df(prediction_reference_data,stl_arima_pred).values()))
 
-    
 #%%######### SARIMAX             ############################################
 
-sarimax_pred = sarimax_method_pred(data2[:-HORIZON], HORIZON,opt_lambdas,p_difference)
+sarimax_pred,sarimax_orders = sarimax_method_pred(data2[:-HORIZON], HORIZON,opt_lambdas,p_difference)
 if show_plot:
     plot_predictions(training_data[-5*HORIZON:],prediction_reference_data,sarimax_pred,title="SARIMAX prediction",size=[4,2])
 smape_arrays['smape_sarimax'] = np.array(list(calculate_smape_df(prediction_reference_data,sarimax_pred).values()))
 
 #%%######### NETWORKS #######################################################
 
-############ MLP MULTIOUTPUT     ############################################
-
-
-mlp_multioutput_pred = mlp_multioutput_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
+mlp_multioutput_pred = mlp_multioutput_method_pred(data2.filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
     plot_predictions(training_data[-5*HORIZON:].filter(regex=str_filter),prediction_reference_data.filter(regex=str_filter),mlp_multioutput_pred,title="MLP multioutput prediction",size=[2,2])
 smape_arrays['smape_mlp_multioutput'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),mlp_multioutput_pred).values()))
 
-
-############ MLP RECURSIVE     ##############################################
+#%%######### MLP RECURSIVE     ##############################################
 
 mlp_recursive_pred = mlp_recursive_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
@@ -218,21 +227,21 @@ if show_plot:
 smape_arrays['smape_mlp_recursive'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),mlp_recursive_pred).values()))
 
 
-############ 1D CNN     #####################################################
+#%%######### 1D CNN     #####################################################
 
 cnn_pred = cnn_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
     plot_predictions(training_data[-5*HORIZON:].filter(regex=str_filter),prediction_reference_data.filter(regex=str_filter),cnn_pred,title="CNN prediction",size=[2,2],plot_acf_pacf=False)
 smape_arrays['smape_cnn'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),cnn_pred).values()))
 
-############ RNN VECTOR OUTPUT  #############################################
+#%%######### RNN VECTOR OUTPUT  #############################################
 
 rnn_vector_output_pred = rnn_vector_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
     plot_predictions(training_data[-5*HORIZON:].filter(regex=str_filter),prediction_reference_data.filter(regex=str_filter),rnn_vector_output_pred,title="RNN Vector Output prediction",size=[2,2],plot_acf_pacf=False)
-smape_arrays['smape_rnn_vector'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),rnn_vector_output_pred).values()))
+smape_arrays['smape_rnn_vector_output'] = np.array(list(calculate_smape_df(prediction_reference_data.filter(regex=str_filter),rnn_vector_output_pred).values()))
 
-############ RNN ENCODER DECODER  ###########################################
+#%%######### RNN ENCODER DECODER  ###########################################
 
 rnn_encoder_decoder_pred = rnn_enc_dec_method_pred(data2[:-HORIZON].filter(regex=str_filter),HORIZON,opt_lambdas,p_difference)
 if show_plot:
@@ -257,38 +266,49 @@ fig, ax = plt.subplots(len(smape_arrays.keys()))
 fig.suptitle("SMAPE values for all series per method")
 for i,key in enumerate(smape_arrays.keys()):
     print(key+" "+str(smape_arrays[key].mean()))
-    ax[i].plot(smape_arrays[key])
-    ax[i].set_title(key)
-    ax[i].set_ylim([0, 100])
+    ax[i].plot(smape_arrays[key],'ko-')
+    ax[i].set_title(key, x=0.5, y=0.5)
+    ax[i].set_ylim([0, max([max(arr) for arr in smape_arrays.values()])])
+    ax[i].set_xlabel("Series number")
+    
+#%% PLOT boxplot of methods
+fig,ax=plt.subplots(1)
+df_smape = pd.DataFrame(smape_arrays)
+df_smape.boxplot(rot=90,ax=ax)
+ax.set_title("SMAPE values for all series grouped by method")
+ax.set_ylabel("SMAPE")
+ax.set_xlabel("Prediction method")
 
-#%%######### TEST RANDOM COMBINATIONS #######################################
-results = {}
-best = {'coeff':[],'smape':999}
-for k in range(100):
-    coeff = np.random.rand(2)
-    results[k] = coeff
-    multi_pred = (coeff[0]*snaive_decomp_pred+coeff[1]*snaive_year_pred)/sum(coeff)
-    smape_multi = np.array(list(calculate_smape_df(prediction_reference_data,multi_pred).values())).mean()
-    results[k+1000]=smape_multi
-    if smape_multi<best['smape']:
-        best['smape'] = smape_multi
-        best['coeff'] = coeff
-    print("{} - SMAPE: {}".format(coeff,smape_multi))
+## Code to extract interquartile distance:
+for method in smape_arrays.keys():    
+    q1 = df_smape[method].quantile(0.25)
+    q3 = df_smape[method].quantile(0.75)
+    IQR = q3 - q1    #IQR is interquartile range. 
+    filter = (df_smape[method] >= q1 - 1.5 * IQR) & (df_smape[method] <= q3 + 1.5 *IQR)
+    print("{:{width}}IQR:{:6.2f}  #Outliers:{:3.0f}  SMAPE:{:6.2f}".format(method,IQR,sum(filter==False),smape_arrays[method].mean(),width=30))
+
 
 #%% FIND BEST ALGORITHM FOR EACH SERIES
 
-best_algorithm_per_series = {}
-new_smape_array = {}
-#combined_predictions = pd.DataFrame(index=avg_pred.index)
+try:
+  del smape_arrays['combo']
+except:
+  pass
+smape_df = pd.DataFrame.from_dict(smape_arrays)
+smape_series = {}
+combined_predictions = pd.DataFrame(index=avg_pred.index)
+#Calculate new prediction based on average of #amount_methods# best methods per time series. 
+amount_methods = 4
 for i,series_name in enumerate(data.filter(regex="^series").columns):
-    best_algorithm_per_series[series_name] = list(smape_arrays.keys())[0]
-    for k,algo in enumerate(smape_arrays.keys()):
-        if smape_arrays[algo][i]<smape_arrays[best_algorithm_per_series[series_name]][i]:
-            best_algorithm_per_series[series_name] = algo
-    new_smape_array[series_name]=smape_arrays[best_algorithm_per_series[series_name]][i] 
-    #combined_predictions[series_name]=globals()[best_algorithm_per_series[series_name][6:]+"_pred"][series_name]        
-print("New overall smape: {}".format(np.array(list(new_smape_array.values())).mean()))
-plt.hist(best_algorithm_per_series.values())
+  smape_series[i] = smape_df.columns[smape_df.iloc[i].values.argsort()[:amount_methods]] 
+  combined_predictions[series_name]=0
+  for method in smape_series[i]:
+    if method=="smape_rnn_vector":
+      method = "smape_rnn_vector_output"
+    combined_predictions[series_name]+=globals()[method[6:]+"_pred"][series_name]
+  combined_predictions[series_name]=combined_predictions[series_name]/amount_methods
+smape_arrays['combo'] = np.array(list(calculate_smape_df(prediction_reference_data,combined_predictions).values()))
+smape_arrays['combo'].mean()
 
 
 #############################################################################
@@ -312,15 +332,9 @@ snaive_median_pred = snaive_median_method_pred(data, HORIZON, 35) #Best result f
 
 snaive_decomp_pred = snaive_decomp_method_pred(data2,HORIZON,opt_lambdas) 
 
-combined_predictions = pd.DataFrame(index=avg_pred.index)
-for i,series_name in enumerate(data.filter(regex="^series").columns):
-    combined_predictions[series_name]=globals()[best_algorithm_per_series[series_name][6:]+"_pred"][series_name]        
-
-mlp_multioutput_pred = mlp_multioutput_method_pred(data2.filter(regex="series-1"),HORIZON,opt_lambdas,p_difference)
+mlp_multioutput_pred = mlp_multioutput_method_pred(data2,HORIZON,opt_lambdas,p_difference)
 
 mlp_recursive_pred = mlp_recursive_method_pred(data2,HORIZON,opt_lambdas,p_difference,True)
-
-mlp_combination_pred = (mlp_recursive_pred + mlp_multioutput_pred)/2
 
 rnn_encoder_decoder_pred = rnn_enc_dec_method_pred(data2,HORIZON,opt_lambdas,p_difference)
 
@@ -344,8 +358,7 @@ export_predictions_csv(combined_predictions,"multi_best_selected.csv")
 
 export_predictions_csv(mlp_combination_pred,"mlp_combination_pred.csv")
 
-
-
+export_predictions_csv(mlp_multioutput_pred,"mlp_multiout_new.csv")
 
 
 

@@ -32,7 +32,8 @@ from statsmodels.graphics.tsaplots import plot_acf
 from statsmodels.tsa.forecasting.stl import STLForecast
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.holtwinters import SimpleExpSmoothing, Holt
-
+from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.compat import lzip
 
 from fbprophet import Prophet
 
@@ -66,7 +67,6 @@ from keras.layers import Dense
 from keras.models import Model
 from keras.layers import Dense
 from keras.layers import GRU, RepeatVector, TimeDistributed, Flatten, Input
-
 from keras import regularizers
 
 

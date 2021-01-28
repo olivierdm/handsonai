@@ -6,7 +6,7 @@ def mlp_multioutput(X_train, y_train, X_valid, y_valid, LATENT_DIM, BATCH_SIZE, 
                     loss, optimizer, earlystop, best_val, verbose):
   
     model = Sequential()
-    model.add(Dense(LATENT_DIM, activation="relu", input_shape=(LAG,)))
+    model.add(Dense(LATENT_DIM, activation="tanh", input_shape=(LAG,)))
     model.add(Dense(HORIZON))
 
     model.compile(optimizer=optimizer, loss=loss)

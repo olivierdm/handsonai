@@ -27,12 +27,18 @@ def embed_data(train, valid, test, HORIZON, LAG, freq = "D", variable = 'traffic
     else:
         return train_inputs, valid_inputs, X_train, y_train, X_valid, y_valid
 
-def plot_learning_curves(history,series_name=""):
+def plot_learning_curves(history,series_name="",method="",ax=None):
     plot_df = pd.DataFrame.from_dict({'train_loss':history.history['loss'], 'val_loss':history.history['val_loss']})
-    plot_df.plot(logy=True, figsize=(10,10), fontsize=12,title=series_name)
-    plt.xlabel('epoch', fontsize=12)
-    plt.ylabel('loss', fontsize=12)
-    plt.show()
+    if ax==None:
+        plot_df.plot(logy=True, figsize=(10,10), fontsize=12,title=method+" - "+series_name)
+        plt.xlabel('epoch', fontsize=12)
+        plt.ylabel('loss', fontsize=12)
+        plt.show()
+    else:
+        plot_df.plot(logy=True, figsize=(10,10), fontsize=12,title=method+" - "+series_name, ax=ax)
+        ax.set_xlabel('epoch', fontsize=12)
+        ax.set_ylabel('loss', fontsize=12)
+        
 
 def plot_forecasts(eval_df, HORIZON, h):
     plot_df = eval_df[(eval_df.h=='t+1')][['timestamp', 'actual']]

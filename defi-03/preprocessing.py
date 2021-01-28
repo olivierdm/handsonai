@@ -90,6 +90,7 @@ def dftest(timeseries,plot_rolling_std=True):
     plt.legend(loc='best')
     plt.grid()
     plt.show(block=False)
+    return dfoutput
 
 
 

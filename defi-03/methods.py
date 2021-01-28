@@ -6,6 +6,17 @@ Created on Sat Dec 26 20:53:31 2020
 @author: olivierdemeyst
 """
 from __init__ import *
+import keras
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+from main.module.mlp_multioutput import mlp_multioutput
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.models import Model
+from keras.layers import Dense
+from keras.layers import GRU, RepeatVector, TimeDistributed, Flatten, Input
+from keras import regularizers
+
+
 
 
 def avg_method_pred(training_data,HORIZON):
@@ -159,25 +170,15 @@ def snaive_exp_smoothing_method_pred(training_data,HORIZON,METHOD="simple",smoot
     
     return data_predictions
 
-"""
-def snaive_avg_method_pred(training_data,HORIZON,history_mean):
-    data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
-    for series_name in training_data.filter(regex='^series').columns:
-        data_predictions[series_name]=0
-        calculated_mean = 0
-        for i in range(1,history_mean//7):
-            calculated_mean+=training_data[series_name][day-timedelta(days=7)*multiplier]
-        data_predictions[series_name][i]=training_data[-history_mean:][series_name].where(training_data["w"]==week_day).mean()
-    return data_predictions
-"""
 
 def stl_arima_method_pred(training_data,HORIZON,arima_order):
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
-    for series_name in training_data.filter(regex='^series').columns:
+    for series_name in training_data.filter(regex='^log-series').columns:
         #elec_equip.index.freq = elec_equip.index.inferred_freq
+        print(series_name)
         stlf = STLForecast(training_data[series_name], ARIMA, model_kwargs=dict(order=arima_order, trend="c"))
         stlf_res = stlf.fit()
-        data_predictions[series_name] = stlf_res.forecast(HORIZON)
+        data_predictions[series_name[4:]] = np.exp(stlf_res.forecast(HORIZON))
     return data_predictions
 
 def snaive_decomp_method_pred(training_data,HORIZON,opt_lambdas):  
@@ -252,7 +253,7 @@ def snaive_decomp_method_mod_pred(training_data,HORIZON,opt_lambdas):
         result = stl.fit()
         
         #predict seasonality
-        """
+        
         #average of seasonality on a seasonal lag
         n=len(result.seasonal)
         #s_lag = seasonal lag
@@ -262,10 +263,10 @@ def snaive_decomp_method_mod_pred(training_data,HORIZON,opt_lambdas):
           mat[:,j]=[result.seasonal[n-i-j*s] for i in range(1,s+1)]
         X=np.flip(np.mean(mat, axis=1))
         seasonal_prediction=np.concatenate((X,X,X),axis=None)
-        """
-        seasonal_prediction=np.array(snaive_avg_method_pred(pd.DataFrame(result.seasonal,index=training_data.index).rename(columns={'season':series_name}),
-                               HORIZON, 
-                               35)[series_name])
+        
+        "seasonal_prediction=np.array(snaive_avg_method_pred(pd.DataFrame(result.seasonal,index=training_data.index).rename(columns={'season':series_name}),
+        "                        HORIZON, 
+        "                        35)[series_name])
         
         #predict trend
         #compute moving average of gradient and extrapolate with it
@@ -332,14 +333,15 @@ def fb_prophet_method_pred(training_data,HORIZON,opt_lambdas=None,p_difference=N
 
 def sarimax_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))    
-    
+    model_orders = {}
     for series_name in training_data.filter(regex='diff-series').columns:
         print('Analysing '+series_name)
         arima_model = auto_arima(training_data[series_name],
-                         start_p=0,d=0,start_q=0,max_p=1,max_d=2,max_q=1,
-                         start_P=0,D=0,start_Q=0,max_P=1,max_D=2,max_Q=1,m=7,
+                         start_p=0,d=0,start_q=0,max_p=1,max_d=1,max_q=1,
+                         start_P=0,D=0,start_Q=0,max_P=1,max_D=1,max_Q=1,m=7,
                          seasonal=True,stationary=True,
                          information_criterion='aic')
+        model_orders[series_name[5:]]="{}{}".format(arima_model.order,arima_model.seasonal_order)
         print(arima_model.summary())
         data_predictions[series_name[5:]]=pd.Series(arima_model.predict(n_periods=HORIZON),
                                 index=data_predictions.index)
@@ -350,12 +352,12 @@ def sarimax_method_pred(training_data,HORIZON,opt_lambdas,p_difference):
             data_predictions[series_name[5:]] = undo_differencing(training_data["boxcox-"+series_name[5:]][-p_difference:],data_predictions[series_name[5:]],p_difference)
             data_predictions[series_name[5:]] = inv_boxcox(data_predictions[series_name[5:]],opt_lambdas[series_name[5:]])
 
-    return data_predictions
+    return data_predictions,model_orders
 
 def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=False):
     # The number of lagged values.
-    LAG = 30
-    LATENT_DIM = 50 #5   # number of units in the RNN layer
+    LAG = 21
+    LATENT_DIM = LAG #5   # number of units in the RNN layer
     BATCH_SIZE = 32  # number of samples per mini-batch
     EPOCHS = 100      # maximum number of times the training algorithm will cycle through all samples
     loss = 'mae' #sme Loss function to be used to optimize the model parameters
@@ -374,14 +376,14 @@ def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,p
     
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^diff-series').columns:
-        print("Predicting next values for "+series_name[5:])
+        print("MLP MO --- Predicting next values for "+series_name[5:])
         series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
         file_header = "model_" + series_name + "_mlp_multioutput"
 
         if not predict_only:
             # Data split
             n = len(series_data)
-            n_train = int(0.8 * n)#(n - HORIZON - LAG))
+            n_train = int(0.7 * n)#(n - HORIZON - LAG))
             n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
             n_learn = n_train + n_valid
             
@@ -408,7 +410,7 @@ def mlp_multioutput_method_pred(training_data,HORIZON,opt_lambdas,p_difference,p
                                     earlystop = earlystop, 
                                     best_val = best_val,
                                     verbose=verbose)
-            plot_learning_curves(history_mlp_multioutput,series_name[5:])
+            plot_learning_curves(history_mlp_multioutput,series_name[5:],method="MLP-MO")
         
             best_epoch = np.argmin(np.array(history_mlp_multioutput.history['val_loss']))+1
             filepath = '../work/' + file_header + '_{:02d}.h5'
@@ -461,7 +463,7 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,pre
     
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^diff-series').columns:
-        print("Predicting next values for "+series_name[5:])
+        print("MLP Recursive --- Predicting next values for "+series_name[5:])
         file_header = "model_" + series_name + "_mlp_recursive"
         best_val = ModelCheckpoint('../work/' + file_header + '_{epoch:02d}.h5', save_best_only=True, mode='min', period=1)
         #########################
@@ -470,7 +472,7 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,pre
         if not predict_only:
             # Data split
             n = len(series_data)
-            n_train = int(0.8 * n)#(n - HORIZON - LAG))
+            n_train = int(0.7 * n)#(n - HORIZON - LAG))
             n_valid = n - n_train #- HORIZON - LAG #Must be minamally HORIZON+LAG = 51 to test last 21 days prediction
             n_learn = n_train + n_valid
             
@@ -491,7 +493,7 @@ def mlp_recursive_method_pred(training_data,HORIZON,opt_lambdas,p_difference,pre
                                     earlystop = earlystop, 
                                     best_val = best_val,
                                     verbose=verbose)
-            plot_learning_curves(history_mlp_recursive,series_name[5:])
+            plot_learning_curves(history_mlp_recursive,series_name[5:],method="MLP-Recursive")
         
             best_epoch = np.argmin(np.array(history_mlp_recursive.history['val_loss']))+1
             filepath = '../work/' + file_header + '_{:02d}.h5'
@@ -559,7 +561,7 @@ def cnn_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=
     
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^diff-series').columns:
-        print("--- Predicting next values for "+series_name[5:])
+        print("CNN --- Predicting next values for "+series_name[5:])
         series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
         file_header = "model_" + series_name + "_cnn"
         
@@ -595,7 +597,7 @@ def cnn_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predict_only=
                         best_val = best_val,
                         verbose=verbose)
 
-            plot_learning_curves(history_cnn,series_name[5:])
+            plot_learning_curves(history_cnn,series_name[5:],method="CNN")
         
             best_epoch = np.argmin(np.array(history_cnn.history['val_loss']))+1
             filepath = '../work/' + file_header + '_{:02d}.h5'
@@ -668,7 +670,7 @@ def rnn_vector_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predic
     
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^diff-series').columns:
-        print("--- Predicting next values for "+series_name[5:])
+        print("RNN Vector Output --- Predicting next values for "+series_name[5:])
         series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
         file_header = "model_" + series_name + "_rnn_vector"
         
@@ -704,7 +706,7 @@ def rnn_vector_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predic
                                     best_val = best_val,
                                     verbose=verbose)
             
-            plot_learning_curves(history_rnn_vector_output,series_name[5:])
+            plot_learning_curves(history_rnn_vector_output,series_name[5:],method="RNN-Vector Output")
             
             best_epoch = np.argmin(np.array(history_rnn_vector_output.history['val_loss']))+1
             filepath = '../work/' + file_header + '_{:02d}.h5'
@@ -774,7 +776,7 @@ def rnn_enc_dec_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predi
     
     data_predictions = pd.DataFrame(index=training_data.index[-HORIZON:]+timedelta(days=HORIZON))
     for series_name in training_data.filter(regex='^diff-series').columns:
-        print("--- Predicting next values for "+series_name[5:])
+        print("RNN ENC-DEC --- Predicting next values for "+series_name[5:])
         series_data = pd.DataFrame(training_data[series_name][p_difference:].values,index=training_data.index[p_difference:],columns=['series'])
         file_header = "model_" + series_name + "_rnn_vector"
         
@@ -810,7 +812,7 @@ def rnn_enc_dec_method_pred(training_data,HORIZON,opt_lambdas,p_difference,predi
                                     best_val = best_val,
                                     verbose=verbose)
             
-            plot_learning_curves(history_rnn_encoder_decoder,series_name[5:])
+            plot_learning_curves(history_rnn_encoder_decoder,series_name[5:],method="RNN Encoder-Decoder")
                         
             best_epoch = np.argmin(np.array(history_rnn_encoder_decoder.history['val_loss']))+1
             filepath = '../work/' + file_header + '_{:02d}.h5'
