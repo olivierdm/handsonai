@@ -264,10 +264,6 @@ def snaive_decomp_method_mod_pred(training_data,HORIZON,opt_lambdas):
         X=np.flip(np.mean(mat, axis=1))
         seasonal_prediction=np.concatenate((X,X,X),axis=None)
         
-        "seasonal_prediction=np.array(snaive_avg_method_pred(pd.DataFrame(result.seasonal,index=training_data.index).rename(columns={'season':series_name}),
-        "                        HORIZON, 
-        "                        35)[series_name])
-        
         #predict trend
         #compute moving average of gradient and extrapolate with it
         #t_lag = trend lag
